@@ -1,0 +1,22 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../database"
+		},
+		{
+			"path": "../docs"
+		},
+		{
+			"path": "../frontend"
+		},
+		{
+			"path": "../n8n"
+		},
+		{
+			"path": "../nginx"
+		}
+	]
+}

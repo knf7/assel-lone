@@ -1,0 +1,79 @@
+.animated-background {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+    background: linear-gradient(-45deg, #FF6B35, #1B3B6F, #FF8C61, #2A4A7F, #E85D2A, #0F2347);
+    background-size: 400% 400%;
+    animation: gradient-shift 15s ease infinite;
+}
+
+.gradient-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: radial-gradient(circle at 20% 50%, rgba(255, 107, 53, 0.3) 0%, transparent 50%),
+        radial-gradient(circle at 80% 80%, rgba(27, 59, 111, 0.3) 0%, transparent 50%),
+        radial-gradient(circle at 40% 20%, rgba(255, 140, 97, 0.2) 0%, transparent 50%);
+    animation: overlay-shift 20s ease infinite;
+}
+
+/* Stars Layer */
+.stars-layer {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.star {
+    position: absolute;
+    border-radius: 50%;
+    background: radial-gradient(circle, #fff 0%, rgba(255, 220, 180, 0.8) 40%, transparent 70%);
+    box-shadow: 0 0 6px 1px rgba(255, 255, 255, 0.3);
+    animation: twinkle ease-in-out infinite;
+}
+
+@keyframes twinkle {
+
+    0%,
+    100% {
+        opacity: var(--star-opacity, 0.3);
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 1;
+        transform: scale(1.4);
+    }
+}
+
+@keyframes gradient-shift {
+    0% {
+        background-position: 0% 50%;
+    }
+
+    50% {
+        background-position: 100% 50%;
+    }
+
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+@keyframes overlay-shift {
+
+    0%,
+    100% {
+        opacity: 0.5;
+    }
+
+    50% {
+        opacity: 0.8;
+    }
+}

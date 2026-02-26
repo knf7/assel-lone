@@ -1,0 +1,274 @@
+/* ─── Page Header ─── */
+.page-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.page-title {
+    font-size: 26px;
+    font-weight: 800;
+    color: var(--navy);
+}
+
+.page-sub {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 3px;
+}
+
+.page-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+/* ─── Toolbar ─── */
+.toolbar-card {
+    padding: 14px 18px;
+    margin-bottom: 18px;
+}
+
+.search-wrap {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--glass-bg);
+    backdrop-filter: blur(10px);
+    border: 1.5px solid var(--glass-border);
+    border-radius: var(--r-md);
+    padding: 10px 16px;
+    max-width: 480px;
+    transition: all var(--t-fast);
+    box-shadow: var(--shadow-sm);
+}
+
+.search-wrap:focus-within {
+    border-color: var(--coral);
+}
+
+.search-icon {
+    font-size: 16px;
+    color: var(--text-muted);
+}
+
+.search-field {
+    border: none;
+    background: none;
+    outline: none;
+    font-family: inherit;
+    font-size: 14px;
+    color: var(--text-primary);
+    width: 100%;
+}
+
+/* ─── Table Card ─── */
+.table-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border-radius: 20px;
+    box-shadow: var(--shadow-md);
+    border: 1px solid var(--glass-border);
+    overflow: hidden;
+    transition: all var(--t-mid);
+}
+
+.table-card:hover {
+    box-shadow: var(--shadow-lg);
+}
+
+.table-scroll {
+    overflow-x: auto;
+}
+
+.table-loading,
+.table-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 60px 20px;
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+.table-empty span {
+    font-size: 40px;
+}
+
+/* Row overdue */
+.row-overdue {
+    background: rgba(239, 68, 68, 0.03) !important;
+}
+
+.row-overdue:hover td {
+    background: rgba(239, 68, 68, 0.06) !important;
+}
+
+/* Custom cells */
+.td-num {
+    color: var(--text-muted);
+    font-size: 12px;
+    width: 40px;
+    text-align: center;
+}
+
+.td-mono {
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    letter-spacing: 0.03em;
+}
+
+.td-amount {
+    font-weight: 700;
+    text-align: center;
+}
+
+.amount-debt {
+    color: var(--danger);
+}
+
+.amount-zero {
+    color: var(--success);
+}
+
+.customer-cell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.customer-avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.customer-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--navy);
+}
+
+/* Action Buttons */
+.action-btns {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.btn-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 700;
+    transition: all var(--t-fast);
+    text-decoration: none;
+    border: 1px solid transparent;
+}
+
+.btn-whatsapp {
+    background: rgba(37, 211, 102, 0.1);
+    color: #25D366;
+    border-color: rgba(37, 211, 102, 0.2);
+}
+
+.btn-whatsapp:hover {
+    background: #25D366;
+    color: #fff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(37, 211, 102, 0.3);
+}
+
+.btn-najiz {
+    background: rgba(59, 130, 246, 0.1);
+    color: var(--info);
+    border-color: rgba(59, 130, 246, 0.2);
+}
+
+.btn-najiz:hover {
+    background: var(--info);
+    color: #fff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+/* ─── Pagination ─── */
+.pagination {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 16px;
+    border-top: 1px solid var(--border);
+}
+
+.page-info {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+/* ─── Modal Form ─── */
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.modal-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+}
+
+.form-error {
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    color: var(--danger);
+    padding: 10px 14px;
+    border-radius: var(--r-md);
+    font-size: 13px;
+    margin-bottom: 16px;
+}
+
+/* ─── db-spinner (reuse) ─── */
+.db-spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid rgba(232, 99, 58, 0.2);
+    border-top-color: var(--coral);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@media (max-width: 640px) {
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+}

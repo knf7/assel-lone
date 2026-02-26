@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+
+<head>
+    <meta charset="utf-8" />
+    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#FF5722" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="description" content="أصيل المالي - نظام إدارة القروض الاحترافي. تابع قروضك وعملاءك بكفاءة عالية مع تحليلات ذكية." />
+    <meta name="keywords" content="إدارة القروض, نظام مالي, تتبع الديون, أصيل المالي" />
+    <meta name="author" content="أصيل المالي" />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="أصيل المالي - نظام إدارة القروض" />
+    <meta property="og:description" content="نظام احترافي لإدارة القروض والعملاء مع تحليلات ذكية." />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="ar_SA" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="أصيل المالي - نظام إدارة القروض" />
+    <meta name="twitter:description" content="نظام احترافي لإدارة القروض والعملاء." />
+
+    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&family=Tajawal:wght@300;400;500;700;800&display=swap"
+        rel="stylesheet">
+
+    <title>أصيل المالي | نظام إدارة القروض</title>
+
+    <style>
+        /* Skip to main content - accessibility */
+        .skip-to-main {
+            position: fixed;
+            top: -100%;
+            right: 50%;
+            transform: translateX(50%);
+            background: #FF5722;
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 0 0 8px 8px;
+            z-index: 9999;
+            font-family: 'Cairo', sans-serif;
+            font-weight: 700;
+            font-size: 15px;
+            text-decoration: none;
+            transition: top 0.2s ease;
+        }
+
+        .skip-to-main:focus {
+            top: 0;
+            outline: 3px solid #fff;
+            outline-offset: 2px;
+        }
+
+        /* Prevent FOUC */
+        body {
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        body.loaded {
+            opacity: 1;
+        }
+    </style>
+</head>
+
+<body>
+    <a href="#main-content" class="skip-to-main">تخطى إلى المحتوى الرئيسي</a>
+    <noscript>
+        <div style="text-align:center; padding:40px; font-family: 'Cairo', sans-serif; direction:rtl;">
+            <h2>يجب تفعيل JavaScript</h2>
+            <p>يجب تفعيل JavaScript في متصفحك لتشغيل تطبيق أصيل المالي.</p>
+        </div>
+    </noscript>
+    <div id="root"></div>
+    <script>
+        // Prevent FOUC and apply saved theme immediately
+        (function () {
+            var theme = localStorage.getItem('theme') || 'light';
+            document.documentElement.setAttribute('data-theme', theme);
+            document.addEventListener('DOMContentLoaded', function () {
+                document.body.classList.add('loaded');
+            });
+        })();
+    </script>
+</body>
+
+</html>

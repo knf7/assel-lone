@@ -1,0 +1,110 @@
+/* Reuse from index.css design system */
+.analytics-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+/* KPI Section */
+.kpi-section {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 16px;
+}
+
+.kpi-card {
+    background: var(--bg-card);
+    border-radius: var(--r-lg);
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border);
+}
+
+.kpi-info h3 {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.kpi-info p {
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--navy);
+    margin-top: 4px;
+}
+
+.kpi-info p.profit {
+    color: var(--success);
+}
+
+.progress-bar {
+    height: 6px;
+    background: rgba(26, 43, 74, 0.08);
+    border-radius: 99px;
+    overflow: hidden;
+    margin: 6px 0;
+    width: 120px;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--coral), var(--coral-dark));
+    border-radius: 99px;
+    transition: width 0.8s ease;
+}
+
+/* Charts Row */
+.charts-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.charts-row-full {
+    grid-template-columns: 1fr;
+}
+
+@media (max-width: 900px) {
+    .charts-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+.chart-card {
+    background: var(--bg-card);
+    border-radius: var(--r-lg);
+    padding: 24px;
+    box-shadow: var(--shadow-sm);
+    border: 1px solid var(--border);
+}
+
+.chart-card h3 {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--navy);
+    margin-bottom: 16px;
+}
+
+/* db-spinner reuse */
+.db-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+    gap: 16px;
+    color: var(--text-secondary);
+}
+
+.db-spinner {
+    width: 44px;
+    height: 44px;
+    border: 3px solid rgba(232, 99, 58, 0.2);
+    border-top-color: var(--coral);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}

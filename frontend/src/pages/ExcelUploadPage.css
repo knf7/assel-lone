@@ -1,0 +1,570 @@
+/* ═══════════════════════════════════════════════
+   Excel Upload Page — Premium Design System
+   ═══════════════════════════════════════════════ */
+
+/* ── Page Header ─────────────────────────────── */
+.up-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+}
+
+.up-title {
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+.up-sub {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin: 4px 0 0;
+}
+
+/* ── Drop Zone ───────────────────────────────── */
+.drop-zone {
+    border: 2px dashed rgba(232, 99, 58, 0.25);
+    border-radius: 20px;
+    padding: 60px 20px;
+    text-align: center;
+    cursor: pointer;
+    background: rgba(232, 99, 58, 0.02);
+    transition: all .25s ease;
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 24px;
+}
+
+.drop-zone:hover,
+.drop-zone.dragging {
+    border-color: var(--accent);
+    background: rgba(232, 99, 58, 0.06);
+    transform: translateY(-2px);
+}
+
+.drop-zone.dragging {
+    transform: scale(1.01);
+    box-shadow: 0 10px 30px rgba(232, 99, 58, 0.15);
+}
+
+.file-input-hidden {
+    display: none;
+}
+
+.drop-icon-wrap {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: rgba(232, 99, 58, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 16px;
+    transition: transform .3s;
+}
+
+.drop-zone:hover .drop-icon-wrap {
+    transform: scale(1.1) rotate(10deg);
+}
+
+.drop-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 6px;
+}
+
+.drop-sub {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+}
+
+.drop-formats {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+}
+
+.format-chip {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 12px;
+    background: var(--glass-border);
+    color: var(--text-secondary);
+    border: 1px solid transparent;
+}
+
+/* ── File Card ───────────────────────────────── */
+.file-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 20px;
+    border-radius: 16px;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    margin-bottom: 24px;
+    animation: slideIn .3s ease;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.file-card-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: rgba(232, 99, 58, 0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.file-card-info {
+    flex: 1;
+}
+
+.file-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.file-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.icon-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    transition: background .2s;
+}
+
+.icon-btn:hover {
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.icon-btn:hover svg {
+    stroke: #EF4444;
+}
+
+/* ── Sheets Selection ────────────────────────── */
+.sheets-section {
+    padding: 20px;
+    border-radius: 16px;
+    margin-bottom: 24px;
+}
+
+.sheets-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 12px;
+}
+
+.sheet-chip {
+    padding: 8px 16px;
+    border-radius: 10px;
+    border: 1px solid var(--glass-border);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all .2s;
+}
+
+.sheet-chip:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.sheet-chip.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    box-shadow: 0 4px 12px rgba(232, 99, 58, 0.3);
+}
+
+/* ── Column Chips ────────────────────────────── */
+.col-map-card {
+    padding: 20px;
+    border-radius: 16px;
+    margin-bottom: 24px;
+}
+
+.col-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.col-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid transparent;
+}
+
+.col-chip.found {
+    background: rgba(34, 197, 94, 0.1);
+    color: #22C55E;
+    border-color: rgba(34, 197, 94, 0.2);
+}
+
+.col-chip.missing {
+    background: rgba(239, 68, 68, 0.08);
+    color: #EF4444;
+    border-color: rgba(239, 68, 68, 0.15);
+    opacity: 0.7;
+}
+
+.col-found-label {
+    background: rgba(255, 255, 255, 0.2);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    opacity: 0.9;
+}
+
+/* ── Preview Table ───────────────────────────── */
+.preview-card {
+    padding: 20px;
+    border-radius: 16px;
+    margin-bottom: 24px;
+    overflow: hidden;
+}
+
+.preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+}
+
+.preview-badge {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: var(--glass-border);
+    padding: 4px 10px;
+    border-radius: 20px;
+}
+
+.table-scroll {
+    overflow-x: auto;
+    border-radius: 10px;
+    border: 1px solid var(--glass-border);
+}
+
+.preview-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 600px;
+}
+
+.preview-table th {
+    background: rgba(26, 43, 74, 0.04);
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 700;
+    text-align: right;
+    padding: 12px 16px;
+    white-space: nowrap;
+}
+
+.preview-table td {
+    padding: 10px 16px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    border-top: 1px solid var(--glass-border);
+}
+
+/* ── Progress Bar ────────────────────────────── */
+.progress-wrap {
+    margin: 24px 0;
+}
+
+.progress-track {
+    height: 8px;
+    background: var(--glass-border);
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), #F59E0B);
+    border-radius: 4px;
+    transition: width 0.4s ease;
+    box-shadow: 0 0 10px rgba(232, 99, 58, 0.4);
+}
+
+.progress-label {
+    text-align: center;
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 8px;
+    font-weight: 500;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% {
+        opacity: 0.6
+    }
+
+    50% {
+        opacity: 1
+    }
+
+    100% {
+        opacity: 0.6
+    }
+}
+
+/* ── Result Card ─────────────────────────────── */
+.result-card {
+    display: flex;
+    gap: 16px;
+    padding: 20px;
+    border-radius: 16px;
+    margin-top: 24px;
+    border: 1px solid transparent;
+}
+
+.result-success {
+    background: rgba(34, 197, 94, 0.05);
+    border-color: rgba(34, 197, 94, 0.2);
+}
+
+.result-error {
+    background: rgba(239, 68, 68, 0.05);
+    border-color: rgba(239, 68, 68, 0.2);
+}
+
+.result-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    flex-shrink: 0;
+}
+
+.result-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.result-sub {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.result-error-item {
+    font-size: 12px;
+    color: #EF4444;
+    background: rgba(255, 255, 255, 0.5);
+    padding: 4px 8px;
+    border-radius: 4px;
+    margin-bottom: 4px;
+    width: fit-content;
+}
+
+.result-redirect {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--success);
+    margin-top: 8px;
+}
+
+/* ── Tips ────────────────────────────────────── */
+.tips-card {
+    padding: 20px;
+    border-radius: 16px;
+}
+
+.tips-list {
+    list-style: none;
+    padding: 0;
+    margin: 12px 0 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+}
+
+.tips-list li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* ── Buttons ─────────────────────────────────── */
+.up-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--glass-border);
+}
+
+.btn-import {
+    min-width: 160px;
+    justify-content: center;
+}
+
+.btn-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+}
+
+/* Section Labels */
+.section-label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 0;
+}
+
+/* ── Date Unification ── */
+.date-unify-section {
+    padding: 24px;
+    border-radius: 16px;
+    margin-bottom: 24px;
+}
+
+.unify-header {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.unify-toggle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.unify-tip {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin: 0;
+    padding-right: 48px;
+}
+
+.unify-input-wrap {
+    margin-top: 16px;
+    padding-right: 48px;
+}
+
+.unify-date-input {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    color: var(--text-primary);
+    padding: 10px 16px;
+    border-radius: 12px;
+    font-size: 14px;
+    outline: none;
+    transition: all 0.2s;
+}
+
+.unify-date-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(232, 99, 58, 0.1);
+}
+
+/* Custom Checkbox as Switch */
+.unify-toggle input {
+    display: none;
+}
+
+.toggle-slider {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    background: var(--glass-border);
+    border-radius: 20px;
+    transition: .3s;
+}
+
+.toggle-slider:before {
+    content: "";
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    left: 3px;
+    bottom: 3px;
+    background: white;
+    border-radius: 50%;
+    transition: .3s;
+}
+
+.unify-toggle input:checked+.toggle-slider {
+    background: var(--accent);
+}
+
+.unify-toggle input:checked+.toggle-slider:before {
+    transform: translateX(16px);
+}
+
+.fade-in {
+    animation: fadeIn .3s ease forwards;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-5px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

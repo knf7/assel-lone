@@ -1,0 +1,46 @@
+config:
+  target: "http://localhost:3001"
+  phases:
+    - duration: 60
+      arrivalRate: 2
+      name: "Warm up"
+    - duration: 180
+      arrivalRate: 5
+      name: "Sustained load"
+    - duration: 30
+      arrivalRate: 10
+      name: "Mild spike"
+  defaults:
+    headers:
+      Content-Type: "application/json"
+scenarios:
+  - name: "Merchant Workflow"
+    flow:
+      - post:
+          url: "/api/auth/login"
+          json:
+            identifier: "test@example.com"
+            password: "password123"
+          capture:
+            - json: "$.sessionId"
+              as: "sessionId"
+      - post:
+          url: "/api/auth/verify-otp"
+          json:
+            sessionId: "{{ sessionId }}"
+            code: "123456"
+          capture:
+            - json: "$.token"
+              as: "token"
+      - get:
+          url: "/api/reports/dashboard"
+          headers:
+            Cookie: "token={{ token }}"
+      - get:
+          url: "/api/customers"
+          headers:
+            Cookie: "token={{ token }}"
+      - get:
+          url: "/api/reports/analytics"
+          headers:
+            Cookie: "token={{ token }}"

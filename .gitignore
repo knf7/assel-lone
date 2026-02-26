@@ -1,0 +1,17 @@
+node_modules/
+.env
+.DS_Store
+frontend/build/
+frontend/node_modules/
+backend/node_modules/
+backend/coverage/
+backend/logs/
+backend/uploads/*
+!backend/uploads/.gitkeep
+postgres_data/
+redis_data/
+baserow_data/
+n8n_data/
+*.log
+.env.local
+server_credentials.txt
