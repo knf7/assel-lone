@@ -44,6 +44,19 @@ jobs:
 
       - name: Run Tests
         run: npm run test --if-present
+        env:
+          NODE_ENV: test
+          JWT_SECRET: test_jwt_secret_key_32_chars_minimum_ok
+          JWT_EXPIRES_IN: 24h
+          ADMIN_SECRET: test_admin_secret_key_32_chars_min_ok
+          ADMIN_PASSWORD: test_admin_password_123
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: loan_management_test
+          DB_USER: postgres
+          DB_PASSWORD: test_db_password_123456
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
 
   build_frontend:
     name: Frontend CI 
