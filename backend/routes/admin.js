@@ -14,12 +14,14 @@ const router = express.Router();
 // ── POST /api/admin/login ──
 router.post('/login', adminLoginLimiter, (req, res) => {
     const { password } = req.body;
+    const adminPassword = process.env.ADMIN_PASSWORD;
 
     if (!password) {
         return res.status(400).json({ error: 'كلمة المرور مطلوبة' });
     }
-
-    const adminPassword = process.env.ADMIN_PASSWORD || 'Aseel@Admin2024!';
+    if (!adminPassword) {
+        return res.status(500).json({ error: 'إعدادات الإدارة غير مكتملة (ADMIN_PASSWORD)' });
+    }
 
     if (password !== adminPassword) {
         return res.status(401).json({ error: 'كلمة المرور غير صحيحة' });
@@ -197,7 +199,7 @@ router.get('/subscription-requests', async (req, res) => {
 
 // ── POST /api/admin/subscription-requests/:id/action ──
 router.post('/subscription-requests/:id/action', async (req, res) => {
-    const client = await db.connect();
+    const client = await db.pool.connect();
     try {
         const { id } = req.params;
         const { action, notes } = req.body; // action: 'Approve' or 'Rejected'
@@ -223,9 +225,9 @@ router.post('/subscription-requests/:id/action', async (req, res) => {
         const normalizedPlan = (request.plan || 'Free').charAt(0).toUpperCase() + (request.plan || 'Free').slice(1).toLowerCase();
 
         if (action === 'Approved') {
-            // Update merchant's plan and expiry date (30 days from now)
+            // Update merchant's plan and expiry date (45 days from now)
             await client.query(
-                "UPDATE merchants SET subscription_plan = $1, subscription_status = 'Active', status = 'approved', expiry_date = CURRENT_TIMESTAMP + INTERVAL '1 month' WHERE id = $2",
+                "UPDATE merchants SET subscription_plan = $1, subscription_status = 'Active', status = 'approved', expiry_date = CURRENT_TIMESTAMP + INTERVAL '45 days' WHERE id = $2",
                 [normalizedPlan, request.merchant_id]
             );
         } else if (action === 'Rejected') {
@@ -261,7 +263,7 @@ router.get('/global-search', async (req, res) => {
         );
 
         const customers = await db.query(
-            "SELECT c.id, c.name, m.business_name as merchant FROM customers c JOIN merchants m ON m.id = c.merchant_id WHERE c.name ILIKE $1 OR c.national_id ILIKE $1 LIMIT 5",
+            "SELECT c.id, c.full_name, m.business_name as merchant FROM customers c JOIN merchants m ON m.id = c.merchant_id WHERE c.full_name ILIKE $1 OR c.national_id ILIKE $1 LIMIT 5",
             [searchPattern]
         );
 

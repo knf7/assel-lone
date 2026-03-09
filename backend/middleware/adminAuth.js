@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 
-const ADMIN_SECRET = process.env.ADMIN_SECRET || 'aseel_admin_2024_super_secret';
+const ADMIN_SECRET = process.env.ADMIN_SECRET;
 
 // ── Admin login rate limiter (3 attempts / 30 minutes) ──
 const adminLoginLimiter = rateLimit({
@@ -25,6 +25,9 @@ const adminApiLimiter = rateLimit({
  * Generate admin JWT token.
  */
 function generateAdminToken() {
+    if (!ADMIN_SECRET) {
+        throw new Error('ADMIN_SECRET is not configured');
+    }
     return jwt.sign(
         { role: 'admin', iat: Math.floor(Date.now() / 1000) },
         ADMIN_SECRET,
@@ -36,6 +39,10 @@ function generateAdminToken() {
  * Middleware: verify admin JWT token.
  */
 function authenticateAdmin(req, res, next) {
+    if (!ADMIN_SECRET) {
+        return res.status(500).json({ error: 'إعدادات الأمان غير مكتملة (ADMIN_SECRET)' });
+    }
+
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
         return res.status(401).json({ error: 'توكن الأدمن مطلوب' });

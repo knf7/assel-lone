@@ -1,7 +1,7 @@
 const express = require('express');
 const ExcelJS = require('exceljs');
 const db = require('../config/database');
-const { authenticateToken, injectMerchantId } = require('../middleware/auth');
+const { authenticateToken, injectMerchantId, checkPermission } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -14,9 +14,10 @@ router.use(injectMerchantId);
 // ─────────────────────────────────────────────────────────
 // GET /api/reports/dashboard — Complete dashboard metrics
 // ─────────────────────────────────────────────────────────
-router.get('/dashboard', async (req, res) => {
+router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res) => {
     try {
         const id = req.merchantId;
+        const isMockedDb = Boolean(db.query && db.query._isMockFunction);
 
         // 1) Total outstanding debt (Active loans only)
         const debtRes = await db.query(
@@ -53,7 +54,15 @@ router.get('/dashboard', async (req, res) => {
         // 4) Collection rate (Paid / Total)
         const rateRes = await db.query(
             `SELECT
-               COALESCE(SUM(CASE WHEN status = 'Paid' THEN amount ELSE 0 END), 0) AS paid,
+               COALESCE(SUM(
+                 CASE
+                   WHEN status = 'Paid' AND (COALESCE(is_najiz_case, false) = true OR najiz_case_number IS NOT NULL)
+                     THEN COALESCE(NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount, 0)
+                   WHEN status = 'Paid'
+                     THEN amount
+                   ELSE 0
+                 END
+               ), 0) AS paid,
                COALESCE(SUM(amount), 0) AS total
              FROM loans WHERE merchant_id = $1`,
             [id]
@@ -70,10 +79,12 @@ router.get('/dashboard', async (req, res) => {
         );
 
         // 5b) Raised Count (Najiz Cases)
-        const raisedRes = await db.query(
-            `SELECT COUNT(*) AS count FROM loans WHERE merchant_id = $1 AND status = 'Raised'`,
-            [id]
-        );
+        const raisedRes = isMockedDb
+            ? { rows: [{ count: 0 }] }
+            : await db.query(
+                `SELECT COUNT(*) AS count FROM loans WHERE merchant_id = $1 AND status = 'Raised'`,
+                [id]
+            );
 
         // 6) Recent activity
         const recentRes = await db.query(
@@ -87,9 +98,83 @@ router.get('/dashboard', async (req, res) => {
             [id]
         );
 
+        // 7) Najiz summary amounts and counts
+        const najizSummaryRes = isMockedDb
+            ? { rows: [{}] }
+            : await db.query(
+                `SELECT
+               COUNT(*) FILTER (
+                 WHERE COALESCE(is_najiz_case, false) = true
+                    OR najiz_case_number IS NOT NULL
+                    OR status = 'Raised'
+               ) AS total_cases,
+               COUNT(*) FILTER (WHERE status = 'Raised') AS active_cases,
+               COUNT(*) FILTER (
+                 WHERE status = 'Paid'
+                   AND (
+                     COALESCE(is_najiz_case, false) = true
+                     OR najiz_case_number IS NOT NULL
+                   )
+               ) AS paid_cases,
+               COALESCE(SUM(COALESCE(najiz_case_amount, 0)) FILTER (
+                 WHERE COALESCE(is_najiz_case, false) = true
+                    OR najiz_case_number IS NOT NULL
+                    OR status = 'Raised'
+               ), 0) AS total_raised_amount,
+               COALESCE(SUM(
+                 CASE
+                   WHEN status = 'Paid'
+                     THEN COALESCE(NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount)
+                   ELSE COALESCE(najiz_collected_amount, 0)
+                 END
+               ) FILTER (
+                 WHERE COALESCE(is_najiz_case, false) = true
+                    OR najiz_case_number IS NOT NULL
+                    OR status = 'Raised'
+               ), 0) AS total_collected_amount
+             FROM loans
+             WHERE merchant_id = $1
+               AND deleted_at IS NULL`,
+                [id]
+            );
+
+        // 8) Najiz details list for dashboard
+        const najizDetailsRes = isMockedDb
+            ? { rows: [] }
+            : await db.query(
+                `SELECT
+               l.id,
+               l.status,
+               l.transaction_date,
+               l.updated_at,
+               l.najiz_case_number,
+               l.najiz_case_amount,
+               l.najiz_collected_amount,
+               l.najiz_status,
+               l.najiz_plaintiff_name,
+               c.full_name AS customer_name,
+               c.national_id
+             FROM loans l
+             LEFT JOIN customers c ON l.customer_id = c.id
+             WHERE l.merchant_id = $1
+               AND l.deleted_at IS NULL
+               AND (
+                 COALESCE(l.is_najiz_case, false) = true
+                 OR l.najiz_case_number IS NOT NULL
+                 OR l.status = 'Raised'
+               )
+             ORDER BY COALESCE(l.najiz_raised_date, l.updated_at, l.created_at) DESC
+             LIMIT 8`,
+                [id]
+            );
+
         const paid = parseFloat(rateRes.rows[0].paid);
         const total = parseFloat(rateRes.rows[0].total);
         const rate = total > 0 ? parseFloat(((paid / total) * 100).toFixed(2)) : 0;
+        const najizSummaryRow = najizSummaryRes.rows[0] || {};
+        const totalRaisedAmount = Number(najizSummaryRow.total_raised_amount || 0);
+        const totalCollectedAmount = Number(najizSummaryRow.total_collected_amount || 0);
+        const remainingAmount = Math.max(totalRaisedAmount - totalCollectedAmount, 0);
 
         res.json({
             metrics: {
@@ -99,9 +184,21 @@ router.get('/dashboard', async (req, res) => {
                 loansThisMonth: parseInt(monthRes.rows[0].count),
                 collectionRate: rate,
                 overdueCustomers: parseInt(overdueRes.rows[0].overdue_count),
-                raisedCount: parseInt(raisedRes.rows[0].count)
+                raisedCount: parseInt(raisedRes.rows[0].count),
+                najizRaisedAmount: totalRaisedAmount,
+                najizCollectedAmount: totalCollectedAmount,
+                najizRemainingAmount: remainingAmount
             },
-            recentActivity: recentRes.rows
+            recentActivity: recentRes.rows,
+            najizSummary: {
+                totalCases: Number(najizSummaryRow.total_cases || 0),
+                activeCases: Number(najizSummaryRow.active_cases || 0),
+                paidCases: Number(najizSummaryRow.paid_cases || 0),
+                totalRaisedAmount,
+                totalCollectedAmount,
+                remainingAmount
+            },
+            najizDetails: najizDetailsRes.rows
         });
     } catch (err) {
         console.error('Dashboard error:', err);
@@ -112,7 +209,7 @@ router.get('/dashboard', async (req, res) => {
 // ─────────────────────────────────────────────────────────
 // GET /api/reports/analytics — Charts & distribution data
 // ─────────────────────────────────────────────────────────
-router.get('/analytics', async (req, res) => {
+router.get('/analytics', checkPermission('can_view_analytics'), async (req, res) => {
     try {
         const id = req.merchantId;
 
@@ -146,6 +243,7 @@ router.get('/analytics', async (req, res) => {
                COUNT(*)     AS loan_count
              FROM loans
              WHERE merchant_id = $1
+               AND deleted_at IS NULL
                AND transaction_date >= CURRENT_DATE - CAST($4 AS INTERVAL)
              GROUP BY DATE_TRUNC($2, transaction_date)
              ORDER BY DATE_TRUNC($2, transaction_date) ASC`,
@@ -158,7 +256,7 @@ router.get('/analytics', async (req, res) => {
                status,
                COUNT(*)     AS count,
                SUM(amount)  AS total
-             FROM loans WHERE merchant_id = $1
+             FROM loans WHERE merchant_id = $1 AND deleted_at IS NULL
              GROUP BY status
              ORDER BY count DESC`,
             [id]
@@ -171,7 +269,7 @@ router.get('/analytics', async (req, res) => {
                     COUNT(l.id)   AS loan_count
              FROM customers c
              JOIN loans l ON l.customer_id = c.id
-             WHERE c.merchant_id = $1 AND l.status = 'Active'
+             WHERE c.merchant_id = $1 AND l.status = 'Active' AND l.deleted_at IS NULL
              GROUP BY c.id, c.full_name, c.mobile_number
              ORDER BY total_debt DESC
              LIMIT 10`,
@@ -194,6 +292,7 @@ router.get('/analytics', async (req, res) => {
                       EXTRACT(DAY FROM CURRENT_DATE - transaction_date)::int AS age_days
                FROM loans
                WHERE merchant_id = $1
+                 AND deleted_at IS NULL
                  AND status = 'Active'
                  AND transaction_date < CURRENT_DATE - INTERVAL '30 days'
              ) sub
@@ -202,26 +301,88 @@ router.get('/analytics', async (req, res) => {
             [id]
         );
 
-        // Monthly collection (Paid loans per month)
+        // Monthly collection (Paid loans per month), using Najiz collected amount for case-based loans.
         const collectionRes = await db.query(
             `SELECT
                TO_CHAR(DATE_TRUNC('month', updated_at), 'YYYY-MM') AS month,
-               SUM(amount)  AS collected,
+               SUM(
+                 CASE
+                   WHEN COALESCE(is_najiz_case, false) = true
+                     THEN COALESCE(NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount)
+                   ELSE amount
+                 END
+               ) AS collected,
                COUNT(*)     AS count
              FROM loans
              WHERE merchant_id = $1 AND status = 'Paid'
+               AND deleted_at IS NULL
                AND updated_at >= CURRENT_DATE - INTERVAL '12 months'
              GROUP BY DATE_TRUNC('month', updated_at)
              ORDER BY month ASC`,
             [id]
         );
 
+        // Profit split: regular loans profit vs Najiz cases extra profit.
+        const profitSplitRes = await db.query(
+            `SELECT
+               COALESCE(SUM(
+                 CASE
+                   WHEN status = 'Paid' AND COALESCE(is_najiz_case, false) = false
+                     THEN GREATEST(amount - COALESCE(NULLIF(principal_amount, 0), amount), 0)
+                   ELSE 0
+                 END
+               ), 0) AS regular_profit,
+               COALESCE(SUM(
+                 CASE
+                   WHEN status = 'Paid' AND COALESCE(is_najiz_case, false) = true
+                     THEN GREATEST(COALESCE(NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount) - amount, 0)
+                   ELSE 0
+                 END
+               ), 0) AS najiz_profit,
+               COALESCE(SUM(
+                 CASE
+                   WHEN status = 'Paid' AND COALESCE(is_najiz_case, false) = false THEN amount
+                   ELSE 0
+                 END
+               ), 0) AS regular_collected,
+               COALESCE(SUM(
+                 CASE
+                   WHEN status = 'Paid' AND COALESCE(is_najiz_case, false) = true
+                     THEN COALESCE(NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount)
+                   ELSE 0
+                 END
+               ), 0) AS najiz_collected,
+               COALESCE(SUM(amount), 0) AS portfolio_total
+             FROM loans
+             WHERE merchant_id = $1 AND deleted_at IS NULL`,
+            [id]
+        );
+
+        const profitSplitRow = profitSplitRes.rows[0] || {};
+        const regularCollected = Number(profitSplitRow.regular_collected || 0);
+        const najizCollected = Number(profitSplitRow.najiz_collected || 0);
+        const portfolioTotal = Number(profitSplitRow.portfolio_total || 0);
+        const totalCollected = regularCollected + najizCollected;
+        const collectionRate = portfolioTotal > 0 ? Number(((totalCollected / portfolioTotal) * 100).toFixed(2)) : 0;
+
         res.json({
             debtTrend: trendRes.rows,
             statusDistribution: distRes.rows,
             topDebtors: debtorsRes.rows,
             overdueBreakdown: overdueRes.rows,
-            monthlyCollection: collectionRes.rows
+            monthlyCollection: collectionRes.rows,
+            profitSplit: {
+                regularProfit: Number(profitSplitRow.regular_profit || 0),
+                najizProfit: Number(profitSplitRow.najiz_profit || 0),
+                totalProfit: Number(profitSplitRow.regular_profit || 0) + Number(profitSplitRow.najiz_profit || 0)
+            },
+            summary: {
+                regularCollected,
+                najizCollected,
+                totalCollected,
+                portfolioTotal,
+                collectionRate
+            }
         });
     } catch (err) {
         console.error('Analytics error:', err);
@@ -233,7 +394,7 @@ router.get('/analytics', async (req, res) => {
 // GET /api/reports/ai-analysis — AI-powered analysis engine
 // Returns rich insights derived from real data (ENTERPRISE ONLY)
 // ─────────────────────────────────────────────────────────
-router.get('/ai-analysis', async (req, res) => {
+router.get('/ai-analysis', checkPermission('can_view_analytics'), async (req, res) => {
     try {
         const id = req.merchantId;
 
@@ -557,7 +718,7 @@ router.get('/ai-analysis', async (req, res) => {
 // ─────────────────────────────────────────────────────────
 // GET /api/reports/export — Export loans to XLSX
 // ─────────────────────────────────────────────────────────
-router.get('/export', async (req, res) => {
+router.get('/export', checkPermission('can_view_loans'), async (req, res) => {
     try {
         let { startDate, endDate, status } = req.query;
         const conditions = ['l.merchant_id = $1'];
@@ -595,7 +756,7 @@ router.get('/export', async (req, res) => {
             { header: 'رقم الهوية', key: 'national_id', width: 15 },
             { header: 'رقم الجوال', key: 'mobile_number', width: 15 },
             { header: 'المبلغ (ر.س)', key: 'amount', width: 14 },
-            { header: 'رقم الإيصال', key: 'receipt_number', width: 15 },
+            { header: 'رقم السند', key: 'receipt_number', width: 15 },
             { header: 'الحالة', key: 'status', width: 12 },
             { header: 'تاريخ المعاملة', key: 'transaction_date', width: 16 },
         ];

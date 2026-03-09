@@ -1,5 +1,7 @@
 const nodemailer = require('nodemailer');
 const path = require('path');
+const { enqueueEmail } = require('./emailQueue');
+const logger = require('./logger');
 
 let transporter = null;
 
@@ -13,7 +15,7 @@ async function getTransporter() {
 
     if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
         // Production SMTP
-        console.log(`📡 Initializing Real SMTP: ${process.env.SMTP_HOST} (${process.env.SMTP_USER})`);
+        logger.info(`📡 Initializing Real SMTP: ${process.env.SMTP_HOST} (${process.env.SMTP_USER})`);
         transporter = nodemailer.createTransport({
             host: process.env.SMTP_HOST,
             port: parseInt(process.env.SMTP_PORT || '587', 10),
@@ -35,7 +37,7 @@ async function getTransporter() {
                 pass: testAccount.pass,
             },
         });
-        console.log('📧 Ethereal mail account:', testAccount.user);
+        logger.info('📧 Ethereal mail account:', testAccount.user);
     }
 
     return transporter;
@@ -65,23 +67,22 @@ async function sendOTPEmail(to, code) {
     </div>
     `;
 
-    const info = await transport.sendMail({
+    const mailOptions = {
         from: `"أصيل المالي" <${process.env.SMTP_FROM || 'noreply@aseel.sa'}>`,
         to,
         subject: `🔐 رمز التحقق: ${code}`,
         html,
-    });
+    };
 
-    // In dev mode, log the preview URL
-    const previewUrl = nodemailer.getTestMessageUrl(info);
-    if (previewUrl) {
-        console.log('──────────────────────────────────');
-        console.log(`📧 OTP Email Preview: ${previewUrl}`);
-        console.log(`🔑 OTP Code: ${code}`);
-        console.log('──────────────────────────────────');
+    if (process.env.NODE_ENV !== 'test') {
+        await enqueueEmail(mailOptions);
+        logger.info(`📧 OTP Email queued for: ${to}`);
+    } else {
+        // Fallback for local tests without Redis
+        await transport.sendMail(mailOptions);
     }
 
-    return info;
+    return true;
 }
 
 /**
@@ -124,7 +125,12 @@ async function sendAdminNotificationEmail(businessName, email, plan, receiptPath
         ];
     }
 
-    await transport.sendMail(mailOptions);
+    if (process.env.NODE_ENV !== 'test') {
+        await enqueueEmail(mailOptions);
+        logger.info(`📧 Admin Notification queued for: ${adminEmail}`);
+    } else {
+        await transport.sendMail(mailOptions);
+    }
 }
 
 /**
@@ -144,25 +150,26 @@ async function sendResetPasswordEmail(to, resetLink) {
         <p style="color: #64748B; font-size: 12px;">صلاحية هذا الرابط 30 دقيقة فقط.</p>
     </div>`;
 
-    const info = await transport.sendMail({
+    const mailOptions = {
         from: `"أصيل المالي" <${process.env.SMTP_FROM || 'noreply@aseel.sa'}>`,
         to,
         subject: '🔐 استعادة كلمة المرور - أصيل المالي',
         html,
-    });
+    };
 
-    const previewUrl = nodemailer.getTestMessageUrl(info);
-    if (previewUrl) {
-        console.log('──────────────────────────────────');
-        console.log(`📧 Password Reset Preview URL: ${previewUrl}`);
-        console.log('──────────────────────────────────');
+    if (process.env.NODE_ENV !== 'test') {
+        await enqueueEmail(mailOptions);
+        logger.info(`📧 Reset Email queued for: ${to}`);
+    } else {
+        await transport.sendMail(mailOptions);
     }
 
-    return info;
+    return true;
 }
 
 module.exports = {
     sendOTPEmail,
     sendAdminNotificationEmail,
-    sendResetPasswordEmail
+    sendResetPasswordEmail,
+    getTransporter
 };

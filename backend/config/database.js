@@ -1,4 +1,5 @@
 const { Pool } = require('pg');
+const logger = require('../utils/logger');
 
 const pool = new Pool({
     host: process.env.DB_HOST || 'postgres',
@@ -6,17 +7,17 @@ const pool = new Pool({
     database: process.env.DB_NAME || 'loan_management',
     user: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASSWORD,
-    max: 100,
+    max: 20, // Prevents Postgres connection exhaustion on high loads
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 10000,
 });
 
 pool.on('connect', () => {
-    console.log('✅ Database connected');
+    logger.info('✅ Database connected');
 });
 
 pool.on('error', (err) => {
-    console.error('❌ Unexpected database error:', err);
+    logger.error('❌ Unexpected database error:', err);
     process.exit(-1);
 });
 

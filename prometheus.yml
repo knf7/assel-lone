@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'aseel-backend'
+    static_configs:
+      - targets: ['backend:3001'] # Assuming you expose a /metrics endpoint later if needed
+  
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

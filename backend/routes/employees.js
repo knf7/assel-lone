@@ -11,6 +11,7 @@ router.use(injectRlsContext);
 router.get('/', employeeController.listEmployees);
 router.post('/', checkPlanLimit('employees'), employeeController.createEmployee);
 router.patch('/:id', employeeController.updateEmployee);
+router.patch('/:id/activate', employeeController.activateEmployee);
 router.delete('/:id', employeeController.deleteEmployee);
 
 module.exports = router;

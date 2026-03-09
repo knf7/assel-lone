@@ -1,0 +1,29 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="40" y1="40" x2="472" y2="472" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#334C78"/>
+      <stop offset="1" stop-color="#1F355E"/>
+    </linearGradient>
+    <linearGradient id="icon" x1="170" y1="94" x2="342" y2="266" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A9D3FF"/>
+      <stop offset="1" stop-color="#5EA0F2"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="16" y="16" width="480" height="480" rx="24" fill="url(#bg)"/>
+
+  <rect x="146" y="74" width="220" height="220" rx="56" fill="none" stroke="#B9CADF" stroke-width="10"/>
+  <rect x="170" y="98" width="172" height="172" rx="42" fill="url(#icon)"/>
+
+  <rect x="204" y="140" width="20" height="88" rx="10" fill="#EAF4FF"/>
+  <rect x="248" y="124" width="20" height="104" rx="10" fill="#EAF4FF"/>
+  <rect x="292" y="140" width="20" height="88" rx="10" fill="#EAF4FF"/>
+
+  <text x="256" y="380" text-anchor="middle" fill="#D3DFEF" font-size="42" font-weight="700" font-family="Tahoma, Arial, sans-serif">
+    أصيل المالي
+  </text>
+  <text x="256" y="426" text-anchor="middle" fill="#C4D2E6" font-size="30" font-weight="600" font-family="Tahoma, Arial, sans-serif">
+    إدارة ذكية للعملاء والمعاملات المالية
+  </text>
+</svg>
+

@@ -1,0 +1,86 @@
+.money-rain-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 99999;
+    overflow: hidden;
+}
+
+.money-particle {
+    position: absolute;
+    animation-name: moneyRainFalling;
+    animation-fill-mode: forwards;
+    animation-timing-function: linear;
+    opacity: 0;
+    user-select: none;
+    filter: drop-shadow(0 0 10px rgba(46, 204, 113, 0.3));
+}
+
+.banknote {
+    width: 80px;
+    height: 40px;
+    background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
+    border: 2px solid rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+    position: relative;
+    padding: 2px;
+    box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.1);
+}
+
+.banknote-inner {
+    width: 100%;
+    height: 100%;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 1px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.banknote-emblem {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    position: relative;
+}
+
+.banknote-emblem::after {
+    content: 'SR';
+    color: rgba(255, 255, 255, 0.3);
+    font-size: 8px;
+    font-family: serif;
+    font-weight: bold;
+}
+
+@keyframes moneyRainFalling {
+    0% {
+        transform: translateY(0) rotate(var(--r));
+        opacity: 0;
+    }
+
+    10% {
+        opacity: 1;
+    }
+
+    25% {
+        transform: translateY(25vh) translateX(20px) rotate(calc(var(--r) + 45deg));
+    }
+
+    50% {
+        transform: translateY(50vh) translateX(-20px) rotate(calc(var(--r) - 45deg));
+    }
+
+    75% {
+        transform: translateY(75vh) translateX(20px) rotate(calc(var(--r) + 45deg));
+    }
+
+    100% {
+        transform: translateY(120vh) translateX(0) rotate(var(--r));
+        opacity: 0.8;
+    }
+}

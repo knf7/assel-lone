@@ -220,6 +220,42 @@ services:
       timeout: 10s
       retries: 3
 
+  # =====================================================
+  # System Metrics (Prometheus + Grafana)
+  # =====================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: loan-management-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+    # ports:
+    #   - "9090:9090"
+    networks:
+      - loan-management-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: loan-management-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin123}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3005:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - loan-management-network
+    depends_on:
+      - prometheus
+
 # =====================================================
 # Networks
 # =====================================================
@@ -241,4 +277,8 @@ volumes:
   baserow_data:
     driver: local
   n8n_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
     driver: local

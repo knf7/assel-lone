@@ -1,0 +1,764 @@
+{
+    "name": "Stripe Subscription Management",
+    "nodes": [
+        {
+            "parameters": {
+                "httpMethod": "POST",
+                "path": "stripe-webhook",
+                "responseMode": "responseNode",
+                "options": {
+                    "rawBody": true
+                }
+            },
+            "id": "stripe-webhook",
+            "name": "Stripe Webhook",
+            "type": "n8n-nodes-base.webhook",
+            "typeVersion": 1,
+            "position": [
+                250,
+                300
+            ],
+            "webhookId": "stripe-billing-webhook"
+        },
+        {
+            "parameters": {
+                "jsCode": "// Verify Stripe signature (IMPORTANT for security)\nconst crypto = require('crypto');\n\nconst payload = $input.item.binary.data.toString();\nconst signature = $input.item.headers['stripe-signature'];\nconst webhookSecret = $env.STRIPE_WEBHOOK_SECRET;\n\n// Parse signature header\nconst elements = signature.split(',');\nconst signatureData = {};\nelements.forEach(element => {\n  const [key, value] = element.split('=');\n  signatureData[key] = value;\n});\n\nconst timestamp = signatureData.t;\nconst expectedSignature = signatureData.v1;\n\n// Create signed payload\nconst signedPayload = `${timestamp}.${payload}`;\nconst computedSignature = crypto\n  .createHmac('sha256', webhookSecret)\n  .update(signedPayload)\n  .digest('hex');\n\n// Verify signature\nif (computedSignature !== expectedSignature) {\n  throw new Error('Invalid Stripe signature');\n}\n\n// Parse event data\nconst event = JSON.parse(payload);\n\nreturn {\n  json: {\n    event_type: event.type,\n    event_id: event.id,\n    customer_id: event.data.object.customer,\n    subscription_id: event.data.object.id,\n    status: event.data.object.status,\n    current_period_end: event.data.object.current_period_end,\n    plan_id: event.data.object.items?.data[0]?.price?.id,\n    amount: event.data.object.items?.data[0]?.price?.unit_amount / 100,\n    raw_event: event\n  }\n};"
+            },
+            "id": "verify-stripe-signature",
+            "name": "Verify Stripe Signature",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                450,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "mode": "rules",
+                "rules": {
+                    "values": [
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{$json.event_type}}",
+                                        "rightValue": "customer.subscription.created",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "SUBSCRIPTION_CREATED"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{$json.event_type}}",
+                                        "rightValue": "customer.subscription.updated",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "SUBSCRIPTION_UPDATED"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{$json.event_type}}",
+                                        "rightValue": "customer.subscription.deleted",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "SUBSCRIPTION_DELETED"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{$json.event_type}}",
+                                        "rightValue": "invoice.payment_succeeded",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "PAYMENT_SUCCEEDED"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": false
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{$json.event_type}}",
+                                        "rightValue": "invoice.payment_failed",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        }
+                                    }
+                                ]
+                            },
+                            "renameOutput": true,
+                            "outputKey": "PAYMENT_FAILED"
+                        }
+                    ]
+                },
+                "fallbackOutput": "extra"
+            },
+            "id": "event-router",
+            "name": "Event Router",
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3,
+            "position": [
+                650,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "url": "={{$env.BASEROW_BASE_URL}}/api/database/rows/table/{{$env.MERCHANTS_TABLE_ID}}/",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "sendQuery": true,
+                "queryParameters": {
+                    "parameters": [
+                        {
+                            "name": "filter__stripe_customer_id__equal",
+                            "value": "={{$json.customer_id}}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "find-merchant-by-stripe",
+            "name": "Find Merchant by Stripe ID",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [
+                850,
+                100
+            ],
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "baserow-auth",
+                    "name": "Baserow API Token"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "jsCode": "// Map Stripe plan ID to subscription tier\nconst planMapping = {\n  'price_pro_monthly': 'Pro',\n  'price_pro_yearly': 'Pro',\n  'price_enterprise_monthly': 'Enterprise',\n  'price_enterprise_yearly': 'Enterprise'\n};\n\nconst stripeData = $('Verify Stripe Signature').item.json;\nconst merchantData = $json.results[0];\n\n// Calculate expiry date (+30 days for monthly, +365 for yearly)\nconst currentPeriodEnd = new Date(stripeData.current_period_end * 1000);\n\nreturn {\n  json: {\n    merchant_id: merchantData.id,\n    merchant_row_id: merchantData.id,\n    subscription_plan: planMapping[stripeData.plan_id] || 'Pro',\n    subscription_status: 'Active',\n    stripe_subscription_id: stripeData.subscription_id,\n    expiry_date: currentPeriodEnd.toISOString(),\n    stripe_customer_id: stripeData.customer_id\n  }\n};"
+            },
+            "id": "map-subscription-data",
+            "name": "Map Subscription Data",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1050,
+                100
+            ]
+        },
+        {
+            "parameters": {
+                "method": "PATCH",
+                "url": "={{$env.BASEROW_BASE_URL}}/api/database/rows/table/{{$env.MERCHANTS_TABLE_ID}}/{{$json.merchant_row_id}}/",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "sendBody": true,
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "subscription_plan",
+                            "value": "={{$json.subscription_plan}}"
+                        },
+                        {
+                            "name": "subscription_status",
+                            "value": "Active"
+                        },
+                        {
+                            "name": "stripe_subscription_id",
+                            "value": "={{$json.stripe_subscription_id}}"
+                        },
+                        {
+                            "name": "stripe_customer_id",
+                            "value": "={{$json.stripe_customer_id}}"
+                        },
+                        {
+                            "name": "expiry_date",
+                            "value": "={{$json.expiry_date}}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "activate-subscription",
+            "name": "Activate Subscription",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [
+                1250,
+                100
+            ],
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "baserow-auth",
+                    "name": "Baserow API Token"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "url": "={{$env.BASEROW_BASE_URL}}/api/database/rows/table/{{$env.MERCHANTS_TABLE_ID}}/",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "sendQuery": true,
+                "queryParameters": {
+                    "parameters": [
+                        {
+                            "name": "filter__stripe_customer_id__equal",
+                            "value": "={{$json.customer_id}}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "find-merchant-payment-failed",
+            "name": "Find Merchant (Payment Failed)",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [
+                850,
+                500
+            ],
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "baserow-auth",
+                    "name": "Baserow API Token"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "method": "PATCH",
+                "url": "={{$env.BASEROW_BASE_URL}}/api/database/rows/table/{{$env.MERCHANTS_TABLE_ID}}/{{$json.results[0].id}}/",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "sendBody": true,
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "subscription_plan",
+                            "value": "Free"
+                        },
+                        {
+                            "name": "subscription_status",
+                            "value": "PastDue"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "downgrade-to-free",
+            "name": "Downgrade to Free Tier",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [
+                1050,
+                500
+            ],
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "baserow-auth",
+                    "name": "Baserow API Token"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "url": "https://api.whatsapp.com/v1/messages",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "sendBody": true,
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "messaging_product",
+                            "value": "whatsapp"
+                        },
+                        {
+                            "name": "to",
+                            "value": "={{$json.results[0].whatsapp_phone_id}}"
+                        },
+                        {
+                            "name": "type",
+                            "value": "text"
+                        },
+                        {
+                            "name": "text",
+                            "value": "={\"body\": \"⚠️ فشل الدفع\\n\\nعزيزي \" + $json.results[0].business_name + \",\\n\\nلم نتمكن من معالجة الدفع الخاص بك. تم تخفيض حسابك إلى الباقة المجانية.\\n\\nللترقية مرة أخرى، يرجى تحديث معلومات الدفع من لوحة التحكم.\"}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "notify-payment-failed",
+            "name": "Notify Payment Failed",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [
+                1250,
+                500
+            ],
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "whatsapp-api-auth",
+                    "name": "WhatsApp API Token"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "url": "={{$env.BASEROW_BASE_URL}}/api/database/rows/table/{{$env.MERCHANTS_TABLE_ID}}/",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "sendQuery": true,
+                "queryParameters": {
+                    "parameters": [
+                        {
+                            "name": "filter__stripe_customer_id__equal",
+                            "value": "={{$json.customer_id}}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "find-merchant-deleted",
+            "name": "Find Merchant (Deleted)",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [
+                850,
+                700
+            ],
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "baserow-auth",
+                    "name": "Baserow API Token"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "method": "PATCH",
+                "url": "={{$env.BASEROW_BASE_URL}}/api/database/rows/table/{{$env.MERCHANTS_TABLE_ID}}/{{$json.results[0].id}}/",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "sendBody": true,
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "subscription_plan",
+                            "value": "Free"
+                        },
+                        {
+                            "name": "subscription_status",
+                            "value": "Cancelled"
+                        },
+                        {
+                            "name": "stripe_subscription_id",
+                            "value": ""
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "cancel-subscription",
+            "name": "Cancel Subscription",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [
+                1050,
+                700
+            ],
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "baserow-auth",
+                    "name": "Baserow API Token"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "url": "={{$env.BASEROW_BASE_URL}}/api/database/rows/table/{{$env.MERCHANTS_TABLE_ID}}/",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "sendQuery": true,
+                "queryParameters": {
+                    "parameters": [
+                        {
+                            "name": "filter__stripe_customer_id__equal",
+                            "value": "={{$json.customer_id}}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "find-merchant-payment-success",
+            "name": "Find Merchant (Payment Success)",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [
+                850,
+                300
+            ],
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "baserow-auth",
+                    "name": "Baserow API Token"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "jsCode": "// Extend expiry date by 30 days\nconst merchantData = $json.results[0];\nconst currentExpiry = new Date(merchantData.expiry_date);\nconst newExpiry = new Date(currentExpiry.getTime() + (30 * 24 * 60 * 60 * 1000));\n\nreturn {\n  json: {\n    merchant_row_id: merchantData.id,\n    new_expiry_date: newExpiry.toISOString(),\n    merchant_name: merchantData.business_name,\n    whatsapp_phone: merchantData.whatsapp_phone_id\n  }\n};"
+            },
+            "id": "extend-subscription",
+            "name": "Extend Subscription",
+            "type": "n8n-nodes-base.code",
+            "typeVersion": 2,
+            "position": [
+                1050,
+                300
+            ]
+        },
+        {
+            "parameters": {
+                "method": "PATCH",
+                "url": "={{$env.BASEROW_BASE_URL}}/api/database/rows/table/{{$env.MERCHANTS_TABLE_ID}}/{{$json.merchant_row_id}}/",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "sendBody": true,
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "expiry_date",
+                            "value": "={{$json.new_expiry_date}}"
+                        },
+                        {
+                            "name": "subscription_status",
+                            "value": "Active"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "update-expiry",
+            "name": "Update Expiry Date",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [
+                1250,
+                300
+            ],
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "baserow-auth",
+                    "name": "Baserow API Token"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "url": "https://api.whatsapp.com/v1/messages",
+                "authentication": "genericCredentialType",
+                "genericAuthType": "httpHeaderAuth",
+                "sendBody": true,
+                "bodyParameters": {
+                    "parameters": [
+                        {
+                            "name": "messaging_product",
+                            "value": "whatsapp"
+                        },
+                        {
+                            "name": "to",
+                            "value": "={{$('Extend Subscription').item.json.whatsapp_phone}}"
+                        },
+                        {
+                            "name": "type",
+                            "value": "text"
+                        },
+                        {
+                            "name": "text",
+                            "value": "={\"body\": \"✅ تم تجديد الاشتراك\\n\\nعزيزي \" + $('Extend Subscription').item.json.merchant_name + \",\\n\\nتم تجديد اشتراكك بنجاح!\\n\\n📅 تاريخ الانتهاء الجديد: \" + new Date($json.expiry_date).toLocaleDateString('ar-SA') + \"\\n\\nشكراً لثقتك بنا! 🙏\"}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "id": "notify-payment-success",
+            "name": "Notify Payment Success",
+            "type": "n8n-nodes-base.httpRequest",
+            "typeVersion": 4.1,
+            "position": [
+                1450,
+                300
+            ],
+            "credentials": {
+                "httpHeaderAuth": {
+                    "id": "whatsapp-api-auth",
+                    "name": "WhatsApp API Token"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "respondWith": "json",
+                "responseBody": "={\"received\": true}",
+                "options": {}
+            },
+            "id": "webhook-response",
+            "name": "Webhook Response",
+            "type": "n8n-nodes-base.respondToWebhook",
+            "typeVersion": 1,
+            "position": [
+                1650,
+                400
+            ]
+        }
+    ],
+    "connections": {
+        "Stripe Webhook": {
+            "main": [
+                [
+                    {
+                        "node": "Verify Stripe Signature",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Verify Stripe Signature": {
+            "main": [
+                [
+                    {
+                        "node": "Event Router",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Event Router": {
+            "main": [
+                [
+                    {
+                        "node": "Find Merchant by Stripe ID",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Find Merchant by Stripe ID",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Find Merchant (Deleted)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Find Merchant (Payment Success)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "Find Merchant (Payment Failed)",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Find Merchant by Stripe ID": {
+            "main": [
+                [
+                    {
+                        "node": "Map Subscription Data",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Map Subscription Data": {
+            "main": [
+                [
+                    {
+                        "node": "Activate Subscription",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Activate Subscription": {
+            "main": [
+                [
+                    {
+                        "node": "Webhook Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Find Merchant (Payment Failed)": {
+            "main": [
+                [
+                    {
+                        "node": "Downgrade to Free Tier",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Downgrade to Free Tier": {
+            "main": [
+                [
+                    {
+                        "node": "Notify Payment Failed",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Notify Payment Failed": {
+            "main": [
+                [
+                    {
+                        "node": "Webhook Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Find Merchant (Deleted)": {
+            "main": [
+                [
+                    {
+                        "node": "Cancel Subscription",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Cancel Subscription": {
+            "main": [
+                [
+                    {
+                        "node": "Webhook Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Find Merchant (Payment Success)": {
+            "main": [
+                [
+                    {
+                        "node": "Extend Subscription",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Extend Subscription": {
+            "main": [
+                [
+                    {
+                        "node": "Update Expiry Date",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Update Expiry Date": {
+            "main": [
+                [
+                    {
+                        "node": "Notify Payment Success",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Notify Payment Success": {
+            "main": [
+                [
+                    {
+                        "node": "Webhook Response",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "settings": {
+        "executionOrder": "v1"
+    },
+    "staticData": null,
+    "tags": [],
+    "triggerCount": 1,
+    "updatedAt": "2026-02-15T19:20:00.000Z",
+    "versionId": "1"
+}

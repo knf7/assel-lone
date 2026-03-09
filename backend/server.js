@@ -5,39 +5,88 @@ const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
 require('dotenv').config();
+const { validateEnv } = require('./config/env');
+const Sentry = require('@sentry/node');
+const { nodeProfilingIntegration } = require('@sentry/profiling-node');
+
+// Sentry Initialization First
+if (process.env.SENTRY_DSN) {
+    const tracesSampleRate = Number(process.env.SENTRY_TRACES_SAMPLE_RATE || (process.env.NODE_ENV === 'production' ? 0.2 : 1));
+    const profilesSampleRate = Number(process.env.SENTRY_PROFILES_SAMPLE_RATE || (process.env.NODE_ENV === 'production' ? 0.1 : 1));
+
+    Sentry.init({
+        dsn: process.env.SENTRY_DSN,
+        integrations: [
+            nodeProfilingIntegration(),
+        ],
+        tracesSampleRate: Number.isFinite(tracesSampleRate) ? tracesSampleRate : 0.2,
+        profilesSampleRate: Number.isFinite(profilesSampleRate) ? profilesSampleRate : 0.1,
+    });
+}
 
 const authRoutes = require('./routes/auth');
 const loansRoutes = require('./routes/loans');
 const customersRoutes = require('./routes/customers');
+const { bindTransport } = require('./utils/emailWorker');
+const mailer = require('./utils/mailer');
+
+// Bind mailer to the worker queue
+bindTransport(async (jobData) => {
+    const transport = await mailer.getTransporter();
+    return transport.sendMail(jobData);
+});
 const reportsRoutes = require('./routes/reports');
 const subscriptionRoutes = require('./routes/subscription');
 const logger = require('./utils/logger');
 const metricsController = require('./controllers/metricsController');
+const { createBullBoard } = require('@bull-board/api');
+const { BullMQAdapter } = require('@bull-board/api/bullMQAdapter');
+const { ExpressAdapter } = require('@bull-board/express');
+const { emailQueue } = require('./utils/emailQueue');
+const { redis } = require('./config/redis');
+const db = require('./config/database');
+const { createObservability } = require('./middleware/observability');
+
+validateEnv();
+
+// Initialize Bull Board for Queue Monitoring
+const serverAdapter = new ExpressAdapter();
+serverAdapter.setBasePath('/admin/queues');
+createBullBoard({
+    queues: [new BullMQAdapter(emailQueue)],
+    serverAdapter: serverAdapter,
+});
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const observability = createObservability({
+    logger,
+    notify: (message, snapshot, level = 'warning') => {
+        if (process.env.SENTRY_DSN) {
+            Sentry.captureMessage(message, {
+                level,
+                extra: { snapshot },
+            });
+        }
+    },
+});
 
 // Trust Cloudflare proxy
 app.set('trust proxy', 1);
 
 // Security middleware
 app.use(cookieParser());
-app.use(helmet({
-    contentSecurityPolicy: false, // handled by Nginx in production
-    crossOriginEmbedderPolicy: false,
-    hsts: { maxAge: 31536000, includeSubDomains: true },
-}));
+app.use(helmet()); // Enable all Helmet security headers
+
 const allowedOrigins = [
     process.env.FRONTEND_URL,
-    // Production server
-    'http://109.199.113.45',
-    'http://109.199.113.45:80',
-    'https://109.199.113.45',
+    // Only trusted explicitly matching domains
+    'https://aseel-saas.com',
+    'https://app.aseel-saas.com',
     // Local development
-    'http://localhost',
     'http://localhost:3000',
     'http://localhost:3001',
-    'http://localhost:3002',
+    'http://localhost:3003',
 ].filter(Boolean);
 
 app.use(cors({
@@ -94,6 +143,7 @@ app.use(require('./config/passport').initialize());
 
 // Logging
 app.use(morgan('combined'));
+app.use(observability.middleware);
 
 // Debug logging (Hardened - Zero Trust)
 app.use((req, res, next) => {
@@ -126,11 +176,38 @@ app.use((req, res, next) => {
 });
 
 // Health check
-app.get('/health', (req, res) => {
-    res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+app.get('/health', async (req, res) => {
+    const payload = {
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        services: {
+            database: 'unknown',
+            redis: 'unknown'
+        }
+    };
+
+    try {
+        await db.query('SELECT 1');
+        payload.services.database = 'up';
+    } catch (e) {
+        payload.services.database = 'down';
+    }
+
+    try {
+        await redis.ping();
+        payload.services.redis = 'up';
+    } catch (e) {
+        payload.services.redis = 'down';
+    }
+
+    const allUp = payload.services.database === 'up' && payload.services.redis === 'up';
+    if (!allUp) payload.status = 'degraded';
+    res.status(allUp ? 200 : 503).json(payload);
 });
 
 // API Routes
+// Clerk Webhooks (must be before json body parser for raw body access)
+app.use('/api/webhooks', require('./routes/webhooks'));
 app.use('/api/auth', authRoutes);
 app.use('/api/loans', loansRoutes);
 app.use('/api/customers', customersRoutes);
@@ -145,11 +222,36 @@ app.use('/api/public', require('./routes/public'));
 // Observability Route (Internal/Protected)
 app.get('/api/admin-metrics-x7', (req, res, next) => {
     const authHeader = req.headers['x-metrics-key'];
-    if (authHeader === (process.env.ADMIN_SECRET || 'secret123')) {
+    if (process.env.ADMIN_SECRET && authHeader === process.env.ADMIN_SECRET) {
         return metricsController.getMetrics(req, res);
     }
     res.status(403).json({ error: 'Unauthorized access to metrics' });
 });
+
+app.get('/api/ops/runtime-metrics', (req, res) => {
+    const authHeader = req.headers['x-metrics-key'];
+    if (!process.env.ADMIN_SECRET || authHeader !== process.env.ADMIN_SECRET) {
+        return res.status(403).json({ error: 'Unauthorized access to runtime metrics' });
+    }
+    return res.json({
+        status: 'ok',
+        timestamp: new Date().toISOString(),
+        runtime: observability.getSnapshot(),
+    });
+});
+
+// --- BullMQ Dashboard (Secured) ---
+// In production, you would attach authentication middleware here
+app.use('/admin/queues', (req, res, next) => {
+    // Simplistic auth wrapper, usually replaced by proper passport/JWT middleware
+    const authHeader = req.headers['authorization'] || req.query.key;
+    if (process.env.ADMIN_SECRET && authHeader === process.env.ADMIN_SECRET) {
+        return next();
+    }
+    // In development or if no auth enforced, you can uncomment next() directly
+    if (process.env.NODE_ENV === 'development') return next();
+    res.status(401).send('Unauthorized for Queue Monitoring');
+}, serverAdapter.getRouter());
 
 // Serve static files from uploads folder
 const path = require('path');
@@ -160,6 +262,11 @@ app.use((req, res) => {
     res.status(404).json({ error: 'Route not found' });
 });
 
+// The error handler must be before any other error middleware and after all controllers
+if (process.env.SENTRY_DSN) {
+    app.use(Sentry.Handlers.errorHandler());
+}
+
 // Global error handler
 app.use((err, req, res, next) => {
     logger.error('Unhandled Error:', {
@@ -168,6 +275,11 @@ app.use((err, req, res, next) => {
         path: req.path,
         method: req.method
     });
+
+    if (process.env.SENTRY_DSN) {
+        Sentry.captureException(err);
+    }
+
     res.status(err.status || 500).json({
         error: err.message || 'Internal server error',
         ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
@@ -176,8 +288,8 @@ app.use((err, req, res, next) => {
 
 if (require.main === module) {
     app.listen(PORT, () => {
-        console.log(`🚀 Server running on port ${PORT}`);
-        console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+        logger.info(`🚀 Server running on port ${PORT}`);
+        logger.info(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
     });
 }
 

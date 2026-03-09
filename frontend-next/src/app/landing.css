@@ -1,0 +1,23 @@
+.landing-reset {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  color: var(--text-primary);
+}
+
+.landing-reset-shell {
+  text-align: center;
+}
+
+.landing-reset-shell h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 900;
+}
+
+.landing-reset-shell p {
+  margin: 0.45rem 0 0;
+  color: var(--text-secondary);
+  font-weight: 700;
+}

@@ -18,25 +18,17 @@ const api = axios.create({
 
 // Request interceptor - Add JWT token to all requests
 api.interceptors.request.use(
-    (config) => {
-        const token = localStorage.getItem('token');
-        if (token) {
-            // Check token expiry before sending
+    async (config) => {
+        // Fetch token from Clerk
+        if (window.Clerk && window.Clerk.session) {
             try {
-                const payload = JSON.parse(atob(token.split('.')[1]));
-                if (payload.exp && payload.exp * 1000 < Date.now()) {
-                    // Token expired — clear and redirect
-                    localStorage.clear();
-                    window.location.href = '/login';
-                    return Promise.reject(new Error('Token expired'));
+                const token = await window.Clerk.session.getToken();
+                if (token) {
+                    config.headers.Authorization = `Bearer ${token}`;
                 }
             } catch (e) {
-                // Malformed token — clear
-                localStorage.clear();
-                window.location.href = '/login';
-                return Promise.reject(new Error('Invalid token'));
+                console.error("Failed to get Clerk token", e);
             }
-            config.headers.Authorization = `Bearer ${token}`;
         }
 
         // Add merchant_id to all requests for multi-tenancy
@@ -60,20 +52,36 @@ api.interceptors.response.use(
     async (error) => {
         const originalRequest = error.config;
 
-        // Handle 401 Unauthorized - Token expired
+        // Handle 401 Unauthorized - Token expired or invalid
         if (error.response?.status === 401 && !originalRequest._retry) {
+            console.warn('[AUTH] Token expired, attempting to refresh...');
             originalRequest._retry = true;
 
-            // Clear auth data and redirect to login
+            // Try to get a fresh token from Clerk
+            if (window.Clerk && window.Clerk.session) {
+                try {
+                    const newToken = await window.Clerk.session.getToken({ skipCache: true });
+                    if (newToken) {
+                        console.log('[AUTH] Token refreshed successfully. Retrying request.');
+                        api.defaults.headers.common['Authorization'] = `Bearer ${newToken}`;
+                        originalRequest.headers['Authorization'] = `Bearer ${newToken}`;
+                        return api(originalRequest);
+                    }
+                } catch (retryErr) {
+                    console.error('[AUTH] Token refresh failed', retryErr);
+                }
+            }
+
+            // If refresh fails or no Clerk session, redirect to login
+            console.error('[AUTH] Force logout due to expired session');
             localStorage.clear();
             window.location.href = '/login';
             return Promise.reject(error);
         }
 
-        // Handle 403 Forbidden - Subscription expired
+        // Handle 403 Forbidden - Subscription expired or limits reached
         if (error.response?.status === 403) {
-            // Redirect to subscription page
-            window.location.href = '/subscription-expired';
+            // We NO LONGER redirect to /subscription-expired globally to avoid blocking the app
             return Promise.reject(error);
         }
 

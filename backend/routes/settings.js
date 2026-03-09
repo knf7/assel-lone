@@ -11,10 +11,11 @@ function generateOTP() {
 }
 
 // Middleware to ensure authentication and merchant ID
-const { authenticateToken, injectMerchantId } = require('../middleware/auth');
+const { authenticateToken, injectMerchantId, checkPermission } = require('../middleware/auth');
 
 router.use(authenticateToken);
 router.use(injectMerchantId);
+router.use(checkPermission('can_view_settings'));
 
 // GET /api/settings/profile - Fetch merchant profile data
 router.get('/profile', async (req, res) => {

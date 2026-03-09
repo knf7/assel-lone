@@ -57,60 +57,47 @@ exports.register = async (req, res) => {
 
         const { username, businessName, email, password, mobile } = value;
 
-        const client = await db.pool.connect();
-        try {
-            await client.query('BEGIN');
-            await client.query("SET LOCAL app.is_authenticating = 'true'");
+        const existingUser = await db.query(
+            'SELECT id FROM merchants WHERE email = $1 OR username = $2',
+            [email, username]
+        );
 
-            const existingUser = await client.query(
-                'SELECT id FROM merchants WHERE email = $1 OR username = $2',
-                [email, username]
-            );
-
-            if (existingUser.rows.length > 0) {
-                await client.query('ROLLBACK');
-                return res.status(409).json({ error: 'البريد الإلكتروني أو اسم المستخدم مسجل مسبقاً' });
-            }
-
-            const passwordHash = await bcrypt.hash(password, 10);
-            const apiKey = crypto.randomBytes(32).toString('hex');
-
-            const result = await client.query(
-                `INSERT INTO merchants 
-           (username, business_name, email, password_hash, api_key, mobile_number, subscription_plan, subscription_status, status, expiry_date)
-           VALUES ($1, $2, $3, $4, $5, $6, 'Enterprise', 'Active', 'approved', CURRENT_TIMESTAMP + INTERVAL '2 days')
-           RETURNING id, username, business_name, email, subscription_plan, status, expiry_date, created_at`,
-                [username, businessName, email, passwordHash, apiKey, mobile]
-            );
-
-            await client.query('COMMIT');
-            const merchant = result.rows[0];
-
-            const token = jwt.sign(
-                { merchantId: merchant.id, email: merchant.email },
-                JWT_SECRET,
-                { expiresIn: JWT_EXPIRES_IN }
-            );
-
-            res.status(201).json({
-                message: 'Registration successful',
-                token,
-                merchant: {
-                    id: merchant.id,
-                    username: merchant.username,
-                    businessName: merchant.business_name,
-                    email: merchant.email,
-                    subscriptionPlan: merchant.subscription_plan,
-                    status: merchant.status,
-                    expiryDate: merchant.expiry_date
-                }
-            });
-        } catch (inner) {
-            await client.query('ROLLBACK');
-            throw inner;
-        } finally {
-            client.release(true); // Hard release for safety
+        if (existingUser.rows.length > 0) {
+            return res.status(409).json({ error: 'البريد الإلكتروني أو اسم المستخدم مسجل مسبقاً' });
         }
+
+        const passwordHash = await bcrypt.hash(password, 10);
+        const apiKey = crypto.randomBytes(32).toString('hex');
+
+        const result = await db.query(
+            `INSERT INTO merchants 
+           (username, business_name, email, password_hash, api_key, mobile_number, subscription_plan, subscription_status, status, expiry_date)
+           VALUES ($1, $2, $3, $4, $5, $6, 'Pro', 'Active', 'approved', CURRENT_TIMESTAMP + INTERVAL '45 days')
+           RETURNING id, username, business_name, email, subscription_plan, status, expiry_date, created_at`,
+            [username, businessName, email, passwordHash, apiKey, mobile]
+        );
+
+        const merchant = result.rows[0];
+
+        const token = jwt.sign(
+            { merchantId: merchant.id, email: merchant.email },
+            JWT_SECRET,
+            { expiresIn: JWT_EXPIRES_IN }
+        );
+
+        res.status(201).json({
+            message: 'Registration successful',
+            token,
+            merchant: {
+                id: merchant.id,
+                username: merchant.username,
+                businessName: merchant.business_name,
+                email: merchant.email,
+                subscriptionPlan: merchant.subscription_plan,
+                status: merchant.status,
+                expiryDate: merchant.expiry_date
+            }
+        });
     } catch (err) {
         console.error('Register error:', err);
         res.status(500).json({ error: 'فشل إنشاء الحساب.' });
@@ -128,28 +115,13 @@ exports.login = async (req, res) => {
 
         const queryStr = `SELECT * FROM auth_lookup_view WHERE (email = $1 OR username = $1)`;
 
-        const client = await db.pool.connect();
-        let user;
-        try {
-            await client.query('BEGIN');
-            await client.query("SET LOCAL app.is_authenticating = 'true'");
-
-            const result = await client.query(queryStr, [identifier]);
-
-            if (result.rows.length === 0) {
-                await client.query('ROLLBACK');
-                return res.status(401).json({ error: 'البريد الإلكتروني/اسم المستخدم أو كلمة المرور غير صحيحة' });
-            }
-            user = result.rows[0];
-            await client.query('COMMIT');
-        } catch (inner) {
-            await client.query('ROLLBACK');
-            throw inner;
-        } finally {
-            client.release(true); // Hard release for safety
+        const result = await db.query(queryStr, [identifier]);
+        if (result.rows.length === 0) {
+            return res.status(401).json({ error: 'البريد الإلكتروني/اسم المستخدم أو كلمة المرور غير صحيحة' });
         }
+        const user = result.rows[0];
 
-        const role = user.role;
+        const role = user.role || 'merchant';
 
         if (user.locked_until && new Date(user.locked_until) > new Date()) {
             const minutesLeft = Math.ceil((new Date(user.locked_until) - new Date()) / 60000);
@@ -174,23 +146,58 @@ exports.login = async (req, res) => {
             await db.query("UPDATE merchants SET failed_login_attempts = 0, locked_until = NULL WHERE id = $1", [user.id]);
         }
 
-        if (user.subscription_status === 'Cancelled') return res.status(403).json({ error: 'الحساب موقوف.' });
+        // Handle Subscription Logic
+        let currentPlan = user.subscription_plan;
+        let currentStatus = user.subscription_status;
+
+        if (currentStatus === 'Expired') {
+            // Auto-downgrade to Free plan after 45-day expiry
+            currentPlan = 'Free';
+            currentStatus = 'Active'; // Keep account active but on free tier
+
+            if (role === 'merchant') {
+                // Update database silently to reflect Free plan
+                await db.query("UPDATE merchants SET subscription_plan = 'Free', subscription_status = 'Active' WHERE id = $1", [user.id]);
+            }
+        } else if (currentStatus === 'Cancelled') {
+            return res.status(403).json({ error: 'الحساب موقوف من قبل الإدارة.' });
+        }
 
         const accountStatus = role === 'employee' ? user.merchant_status : user.status;
         if (accountStatus === 'pending') return res.status(403).json({ error: 'الحساب قيد المراجعة.' });
 
-        const otp = generateOTP();
-        await setOTP(user.id, otp, 300);
+        // Bypass OTP for current frontend implementation
+        const token = jwt.sign({
+            merchantId: user.merchant_id || user.id,
+            userId: user.id,
+            email: user.email,
+            role: user.role,
+            permissions: user.permissions || null,
+            employeeId: user.role === 'employee' ? user.id : null,
+            version: user.session_version || 1
+        }, JWT_SECRET, { expiresIn: rememberMe ? '30d' : JWT_EXPIRES_IN });
 
-        const sessionId = jwt.sign(
-            { merchantId: user.merchant_id || user.id, userId: user.id, role, purpose: '2fa', rememberMe: !!rememberMe },
-            JWT_SECRET,
-            { expiresIn: '10m' }
-        );
+        res.cookie('token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000
+        });
 
-        try { await sendOTPEmail(user.email, otp); } catch (e) { console.log(`🔑 OTP: ${otp}`); }
-
-        res.json({ requires2FA: true, sessionId, message: 'تم إرسال رمز التحقق', email: user.email.replace(/(.{2})(.*)(@.*)/, '$1***$3') });
+        return res.json({
+            message: 'تم تسجيل الدخول بنجاح',
+            token,
+            user: {
+                id: user.id,
+                fullName: user.username || user.full_name || user.email,
+                email: user.email,
+                role: user.role,
+                permissions: user.permissions || null,
+                subscriptionPlan: currentPlan,
+                subscriptionStatus: currentStatus,
+                expiryDate: user.expiry_date
+            }
+        });
 
     } catch (err) {
         console.error('Login error:', err);
@@ -208,40 +215,42 @@ exports.verifyOTP = async (req, res) => {
         let decoded;
         try { decoded = jwt.verify(sessionId, JWT_SECRET); } catch (e) { return res.status(401).json({ error: 'جلسة منتهية' }); }
 
-        const userId = decoded.userId;
+        const userId = decoded.userId || decoded.merchantId;
         const storedOTP = await getOTP(userId);
-        if (!storedOTP || storedOTP !== code) return res.status(401).json({ error: 'الرمز غير صحيح' });
+        if (!storedOTP) return res.status(410).json({ error: 'انتهت صلاحية الرمز' });
+        if (storedOTP !== code) return res.status(401).json({ error: 'الرمز غير صحيح' });
 
         await deleteOTP(userId);
 
-        const client = await db.pool.connect();
         let user;
-        try {
-            await client.query('BEGIN');
-            await client.query("SET LOCAL app.is_authenticating = 'true'");
-
-            if (decoded.role === 'employee') {
-                const resEmp = await client.query(
-                    `SELECT e.id, e.full_name, e.email, e.permissions, m.id as merchant_id, m.subscription_plan, m.subscription_status, m.expiry_date
-                     FROM merchant_employees e
-                     JOIN merchants m ON e.merchant_id = m.id
-                     WHERE e.id = $1`, [userId]
-                );
-                user = resEmp.rows[0];
-                if (user) user.role = 'employee';
-            } else {
-                const resMerch = await client.query(
-                    `SELECT id, username as full_name, email, subscription_plan, subscription_status, session_version, expiry_date
-                     FROM merchants WHERE id = $1`, [userId]
-                );
-                user = resMerch.rows[0];
-                if (user) {
-                    user.role = 'merchant';
-                    user.merchant_id = user.id;
+        if (decoded.role === 'employee') {
+            const resEmp = await db.query(
+                `SELECT e.id, e.full_name, e.email, e.permissions, m.id as merchant_id, m.subscription_plan, m.subscription_status, m.expiry_date
+                 FROM merchant_employees e
+                 JOIN merchants m ON e.merchant_id = m.id
+                 WHERE e.id = $1`, [userId]
+            );
+            user = resEmp.rows[0];
+            if (user) user.role = 'employee';
+        } else {
+            const resMerch = await db.query(
+                `SELECT id, username as full_name, username, email, subscription_plan, subscription_status, session_version, expiry_date, created_at
+                 FROM merchants WHERE id = $1`, [userId]
+            );
+            user = resMerch.rows[0];
+            if (user) {
+                // Auto-repair missing expiry date
+                if (!user.expiry_date && user.subscription_plan === 'Free') {
+                    const repaired = await db.query(
+                        `UPDATE merchants SET expiry_date = CURRENT_TIMESTAMP + INTERVAL '45 days' WHERE id = $1 RETURNING expiry_date`,
+                        [user.id]
+                    );
+                    user.expiry_date = repaired.rows[0].expiry_date;
                 }
+                user.role = 'merchant';
+                user.merchant_id = user.id;
             }
-            await client.query('COMMIT');
-        } finally { client.release(); }
+        }
 
         if (!user) return res.status(404).json({ error: 'المستخدم غير موجود' });
 
@@ -255,8 +264,31 @@ exports.verifyOTP = async (req, res) => {
             version: user.session_version || 1
         }, JWT_SECRET, { expiresIn: decoded.rememberMe ? '30d' : JWT_EXPIRES_IN });
 
-        res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', maxAge: decoded.rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000 });
-        res.json({ message: 'تم التحقق بنجاح', token, user: { id: user.id, fullName: user.full_name, email: user.email, role: user.role, permissions: user.permissions, subscriptionPlan: user.subscription_plan, subscriptionStatus: user.subscription_status, expiryDate: user.expiry_date } });
+        res.cookie('token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: decoded.rememberMe ? 30 * 24 * 60 * 60 * 1000 : 24 * 60 * 60 * 1000
+        });
+        res.json({
+            message: 'تم التحقق بنجاح',
+            token,
+            user: {
+                id: user.id,
+                fullName: user.full_name,
+                email: user.email,
+                role: user.role,
+                permissions: user.permissions,
+                subscriptionPlan: user.subscription_plan,
+                subscriptionStatus: user.subscription_status,
+                expiryDate: user.expiry_date
+            },
+            merchant: {
+                id: user.id,
+                username: user.username || user.full_name,
+                email: user.email
+            }
+        });
     } catch (err) {
         console.error('Verify error:', err);
         res.status(500).json({ error: 'خطأ في التحقق' });

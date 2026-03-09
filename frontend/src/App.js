@@ -1,199 +1,105 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import LoginPage from './pages/LoginPage';
-import ResetPasswordPage from './pages/ResetPasswordPage';
-import DashboardPage from './pages/DashboardPage';
-import LoansPage from './pages/LoansPage';
-import AddLoanPage from './pages/AddLoanPage';
-import ExcelUploadPage from './pages/ExcelUploadPage';
-import AnalyticsPage from './pages/AnalyticsPage';
-import CustomersPage from './pages/CustomersPage';
-import SettingsPage from './pages/SettingsPage';
-import PricingPage from './pages/PricingPage';
-import AdminPage from './pages/AdminPage';
-import NajizCasesPage from './pages/NajizCasesPage';
-import SubscriptionExpiredPage from './pages/SubscriptionExpiredPage';
+import LoginPage from './pages/Auth/LoginPage';
+import ResetPasswordPage from './pages/Auth/ResetPasswordPage';
+import DashboardPage from './pages/Dashboard/DashboardPage';
+import LoansPage from './pages/Loans/LoansPage';
+import AddLoanPage from './pages/Loans/AddLoanPage';
+import ExcelUploadPage from './pages/Najiz/ExcelUploadPage';
+import AnalyticsPage from './pages/Dashboard/AnalyticsPage';
+import CustomersPage from './pages/Customers/CustomersPage';
+import EmployeesPage from './pages/Employees/EmployeesPage';
+import SettingsPage from './pages/Admin/SettingsPage';
+import PricingPage from './pages/Marketing/PricingPage';
+import AdminPage from './pages/Admin/AdminPage';
+import NajizCasesPage from './pages/Najiz/NajizCasesPage';
+import LandingPage from './pages/Marketing/LandingPage';
 import NotFoundPage from './pages/NotFoundPage';
-import GlobalAlert from './components/GlobalAlert';
+import GlobalAlert from './components/ui/GlobalAlert';
 import './App.css';
 
-// ── Session Timeout Warning Dialog ──
-function SessionWarningDialog({ onStay, onLeave, remaining }) {
-    const mins = Math.floor(remaining / 60);
-    const secs = remaining % 60;
-    return (
-        <div
-            className="modal-overlay"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="session-warning-title"
-            aria-describedby="session-warning-desc"
-        >
-            <div className="modal-box" style={{ maxWidth: 420, textAlign: 'center' }}>
-                <div style={{ fontSize: '48px', marginBottom: '12px' }}>⏱️</div>
-                <h2
-                    id="session-warning-title"
-                    className="modal-title"
-                    style={{ justifyContent: 'center', marginBottom: '12px' }}
-                >
-                    انتبه: جلستك على وشك الانتهاء
-                </h2>
-                <p
-                    id="session-warning-desc"
-                    style={{ color: 'var(--text-secondary)', marginBottom: '8px', lineHeight: 1.7 }}
-                >
-                    ستنتهي جلستك تلقائياً بعد:
-                </p>
-                <div style={{
-                    fontSize: '36px',
-                    fontWeight: 900,
-                    color: secs <= 30 ? '#EF4444' : '#F59E0B',
-                    marginBottom: '24px',
-                    fontVariantNumeric: 'tabular-nums',
-                    transition: 'color 0.3s',
-                }}>
-                    {String(mins).padStart(2, '0')}:{String(secs).padStart(2, '0')}
-                </div>
-                <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-                    <button
-                        className="btn btn-primary"
-                        onClick={onStay}
-                        autoFocus
-                        style={{ minWidth: '140px' }}
-                    >
-                        ✓ تمديد الجلسة
-                    </button>
-                    <button
-                        className="btn btn-danger"
-                        onClick={onLeave}
-                        style={{ minWidth: '120px' }}
-                    >
-                        خروج الآن
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
+// ─── Auth Guard ────────────────────────────────────────────────────────────────
+function PrivateRoute({ children, isAuthenticated }) {
+    if (!isAuthenticated) {
+        return <Navigate to="/login" replace />;
+    }
+    return children;
 }
 
+// ─── App ───────────────────────────────────────────────────────────────────────
 function App() {
-    const [isAuthenticated, setIsAuthenticated] = React.useState(
-        !!localStorage.getItem('token')
-    );
-    const [showSessionWarning, setShowSessionWarning] = React.useState(false);
-    const [warningCountdown, setWarningCountdown] = React.useState(120); // 2 min warning
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [loading, setLoading] = useState(true);
 
-    const PrivateRoute = ({ children }) => {
-        return isAuthenticated ? children : <Navigate to="/login" />;
+    // Check for existing token on mount
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        if (token) {
+            setIsAuthenticated(true);
+        }
+        setLoading(false);
+    }, []);
+
+    const setAuth = (val) => {
+        setIsAuthenticated(val);
+        if (!val) {
+            localStorage.removeItem('token');
+            localStorage.removeItem('merchant');
+            localStorage.removeItem('user');
+        }
     };
 
-    // ── Inactivity Timeout (15 minutes) with 2-minute warning ──
-    React.useEffect(() => {
-        if (!isAuthenticated) return;
-
-        const TIMEOUT = 15 * 60 * 1000;        // 15 min
-        const WARN_BEFORE = 2 * 60 * 1000;     // warn 2 min before
-        let logoutTimer;
-        let warnTimer;
-        let countdownInterval;
-
-        const doLogout = () => {
-            setShowSessionWarning(false);
-            localStorage.clear();
-            setIsAuthenticated(false);
-            window.location.href = '/login?reason=timeout';
-        };
-
-        const startWarning = () => {
-            setWarningCountdown(120);
-            setShowSessionWarning(true);
-
-            let count = 120;
-            countdownInterval = setInterval(() => {
-                count -= 1;
-                setWarningCountdown(count);
-                if (count <= 0) {
-                    clearInterval(countdownInterval);
-                }
-            }, 1000);
-        };
-
-        const resetTimers = () => {
-            clearTimeout(logoutTimer);
-            clearTimeout(warnTimer);
-            clearInterval(countdownInterval);
-            setShowSessionWarning(false);
-
-            warnTimer = setTimeout(startWarning, TIMEOUT - WARN_BEFORE);
-            logoutTimer = setTimeout(doLogout, TIMEOUT);
-        };
-
-        const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click'];
-        events.forEach(event => window.addEventListener(event, resetTimers, { passive: true }));
-
-        resetTimers();
-
-        return () => {
-            clearTimeout(logoutTimer);
-            clearTimeout(warnTimer);
-            clearInterval(countdownInterval);
-            events.forEach(event => window.removeEventListener(event, resetTimers));
-        };
-    }, [isAuthenticated]);
-
-    const handleStaySession = () => {
-        setShowSessionWarning(false);
-        // Trigger event to reset the timer
-        window.dispatchEvent(new Event('mousedown'));
-    };
-
-    const handleLeaveSession = () => {
-        setShowSessionWarning(false);
-        localStorage.clear();
-        setIsAuthenticated(false);
-        window.location.href = '/login';
-    };
+    // Don't render until we've checked localStorage
+    if (loading) return null;
 
     return (
         <Router>
             <div className="App">
                 <GlobalAlert />
 
-                {/* Session Warning Dialog */}
-                {showSessionWarning && (
-                    <SessionWarningDialog
-                        remaining={warningCountdown}
-                        onStay={handleStaySession}
-                        onLeave={handleLeaveSession}
-                    />
-                )}
-
                 <Routes>
-                    <Route path="/login" element={<LoginPage setAuth={setIsAuthenticated} />} />
-                    <Route path="/reset-password" element={<ResetPasswordPage />} />
-                    <Route path="/pricing" element={<PricingPage />} />
-                    <Route path="/subscription-expired" element={<SubscriptionExpiredPage />} />
-                    <Route path="/system-manage-x7" element={<AdminPage />} />
+                    {/* ── Public Routes ── */}
                     <Route
-                        path="/dashboard"
+                        path="/"
                         element={
-                            <PrivateRoute>
-                                <DashboardPage />
-                            </PrivateRoute>
+                            isAuthenticated
+                                ? <Navigate to="/dashboard" replace />
+                                : <LandingPage />
                         }
                     />
                     <Route
-                        path="/najiz-cases"
+                        path="/login"
                         element={
-                            <PrivateRoute>
-                                <NajizCasesPage />
+                            isAuthenticated
+                                ? <Navigate to="/dashboard" replace />
+                                : <LoginPage setAuth={setAuth} />
+                        }
+                    />
+                    <Route
+                        path="/register"
+                        element={
+                            isAuthenticated
+                                ? <Navigate to="/dashboard" replace />
+                                : <LoginPage setAuth={setAuth} defaultRegister />
+                        }
+                    />
+                    <Route path="/reset-password" element={<ResetPasswordPage />} />
+                    <Route path="/pricing" element={<PricingPage />} />
+                    <Route path="/system-manage-x7" element={<AdminPage />} />
+
+                    {/* ── Protected Routes ── */}
+                    <Route
+                        path="/dashboard"
+                        element={
+                            <PrivateRoute isAuthenticated={isAuthenticated}>
+                                <DashboardPage />
                             </PrivateRoute>
                         }
                     />
                     <Route
                         path="/loans"
                         element={
-                            <PrivateRoute>
+                            <PrivateRoute isAuthenticated={isAuthenticated}>
                                 <LoansPage />
                             </PrivateRoute>
                         }
@@ -201,15 +107,31 @@ function App() {
                     <Route
                         path="/add-loan"
                         element={
-                            <PrivateRoute>
+                            <PrivateRoute isAuthenticated={isAuthenticated}>
                                 <AddLoanPage />
+                            </PrivateRoute>
+                        }
+                    />
+                    <Route
+                        path="/najiz"
+                        element={
+                            <PrivateRoute isAuthenticated={isAuthenticated}>
+                                <NajizCasesPage />
+                            </PrivateRoute>
+                        }
+                    />
+                    <Route
+                        path="/najiz-cases"
+                        element={
+                            <PrivateRoute isAuthenticated={isAuthenticated}>
+                                <NajizCasesPage />
                             </PrivateRoute>
                         }
                     />
                     <Route
                         path="/excel-upload"
                         element={
-                            <PrivateRoute>
+                            <PrivateRoute isAuthenticated={isAuthenticated}>
                                 <ExcelUploadPage />
                             </PrivateRoute>
                         }
@@ -217,7 +139,7 @@ function App() {
                     <Route
                         path="/analytics"
                         element={
-                            <PrivateRoute>
+                            <PrivateRoute isAuthenticated={isAuthenticated}>
                                 <AnalyticsPage />
                             </PrivateRoute>
                         }
@@ -225,21 +147,29 @@ function App() {
                     <Route
                         path="/customers"
                         element={
-                            <PrivateRoute>
+                            <PrivateRoute isAuthenticated={isAuthenticated}>
                                 <CustomersPage />
+                            </PrivateRoute>
+                        }
+                    />
+                    <Route
+                        path="/employees"
+                        element={
+                            <PrivateRoute isAuthenticated={isAuthenticated}>
+                                <EmployeesPage />
                             </PrivateRoute>
                         }
                     />
                     <Route
                         path="/settings"
                         element={
-                            <PrivateRoute>
+                            <PrivateRoute isAuthenticated={isAuthenticated}>
                                 <SettingsPage />
                             </PrivateRoute>
                         }
                     />
-                    <Route path="/" element={<Navigate to="/dashboard" />} />
-                    {/* 404 catch-all */}
+
+                    {/* 404 */}
                     <Route path="*" element={<NotFoundPage />} />
                 </Routes>
             </div>

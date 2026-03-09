@@ -1,0 +1,918 @@
+{
+  "name": "WhatsApp Loan Management - Main Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "whatsapp-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "WhatsApp Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "whatsapp-loan-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract phone number and message from WhatsApp webhook\nconst body = $input.item.json.body;\n\nconst fromPhone = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from;\nconst messageText = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.text?.body;\nconst messageType = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.type;\nconst mediaUrl = body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.image?.id;\n\nreturn {\n  json: {\n    from_phone: fromPhone,\n    message_text: messageText,\n    message_type: messageType,\n    media_url: mediaUrl,\n    raw_webhook: body\n  }\n};"
+      },
+      "id": "extract-phone",
+      "name": "Extract Phone & Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BASEROW_BASE_URL}}/api/database/rows/table/{{$env.MERCHANTS_TABLE_ID}}/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filter__whatsapp_phone_id__equal",
+              "value": "={{$json.from_phone}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "lookup-merchant",
+      "name": "Lookup Merchant",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [650, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "baserow-auth",
+          "name": "Baserow API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$json.results.length}}",
+              "rightValue": "0",
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            },
+            {
+              "leftValue": "={{$json.results[0].subscription_status}}",
+              "rightValue": "Active",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "auth-check",
+      "name": "Auth & Subscription Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.whatsapp.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "messaging_product",
+              "value": "whatsapp"
+            },
+            {
+              "name": "to",
+              "value": "={{$('Extract Phone & Message').item.json.from_phone}}"
+            },
+            {
+              "name": "type",
+              "value": "text"
+            },
+            {
+              "name": "text",
+              "value": "={\"body\": \"⛔ غير مصرح لك باستخدام هذا النظام. للاشتراك، تواصل مع الدعم.\"}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "unauthorized-reply",
+      "name": "Send Unauthorized Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1050, 450],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "whatsapp-api-auth",
+          "name": "WhatsApp API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Store merchant data for use in subsequent nodes\nconst merchant = $json.results[0];\n\nreturn {\n  json: {\n    merchant_id: merchant.id,\n    merchant_name: merchant.business_name,\n    merchant_email: merchant.email,\n    subscription_plan: merchant.subscription_plan,\n    message_text: $('Extract Phone & Message').item.json.message_text,\n    message_type: $('Extract Phone & Message').item.json.message_type,\n    media_url: $('Extract Phone & Message').item.json.media_url,\n    from_phone: $('Extract Phone & Message').item.json.from_phone\n  }\n};"
+      },
+      "id": "set-merchant-context",
+      "name": "Set Merchant Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 150]
+    },
+    {
+      "parameters": {
+        "model": "llama-3-70b-8192",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "أنت مساعد ذكي لاستخراج البيانات من رسائل WhatsApp العربية. مهمتك:\n\n1. تحديد النية (Intent):\n   - NEW_LOAN: تسجيل دين جديد\n   - REPORT: طلب تقرير الديون\n   - SEARCH: البحث عن عميل\n   - EXPORT: تصدير البيانات\n   - CHAT: محادثة عامة\n\n2. استخراج البيانات:\n   - الاسم الكامل (full_name)\n   - المبلغ (amount) - رقم فقط\n   - رقم الهوية (national_id)\n   - رقم الجوال (mobile_number)\n   - رقم الإيصال (receipt_number)\n\nأرجع JSON فقط بهذا الشكل:\n{\n  \"intent\": \"NEW_LOAN\",\n  \"full_name\": \"أحمد علي\",\n  \"amount\": 5000,\n  \"national_id\": \"1234567890\",\n  \"mobile_number\": \"+966500000000\",\n  \"receipt_number\": \"REC-001\"\n}\n\nإذا لم تجد معلومة، ضع null."
+            },
+            {
+              "role": "user",
+              "content": "={{$json.message_text}}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.1,
+          "maxTokens": 500
+        }
+      },
+      "id": "groq-ai-extraction",
+      "name": "Groq AI Extraction",
+      "type": "n8n-nodes-base.groq",
+      "typeVersion": 1,
+      "position": [1250, 150],
+      "credentials": {
+        "groqApi": {
+          "id": "groq-api-cred",
+          "name": "Groq API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse AI response and merge with merchant context\nconst aiResponse = JSON.parse($json.message.content);\nconst merchantContext = $('Set Merchant Context').item.json;\n\nreturn {\n  json: {\n    ...merchantContext,\n    ...aiResponse,\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "parse-ai-response",
+      "name": "Parse AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 150]
+    },
+    {
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.intent}}",
+                    "rightValue": "NEW_LOAN",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "NEW_LOAN"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.intent}}",
+                    "rightValue": "REPORT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "REPORT"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.intent}}",
+                    "rightValue": "SEARCH",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "SEARCH"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": false
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.intent}}",
+                    "rightValue": "EXPORT",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "EXPORT"
+            }
+          ]
+        },
+        "fallbackOutput": "extra"
+      },
+      "id": "intent-router",
+      "name": "Intent Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1650, 150]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BASEROW_BASE_URL}}/api/database/rows/table/{{$env.CUSTOMERS_TABLE_ID}}/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filter__merchant_id__equal",
+              "value": "={{$json.merchant_id}}"
+            },
+            {
+              "name": "filter__national_id__equal",
+              "value": "={{$json.national_id}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "check-customer-exists",
+      "name": "Check Customer Exists",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1850, 50],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "baserow-auth",
+          "name": "Baserow API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false
+          },
+          "conditions": [
+            {
+              "leftValue": "={{$json.results.length}}",
+              "rightValue": "0",
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "customer-exists-check",
+      "name": "Customer Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2050, 50]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BASEROW_BASE_URL}}/api/database/rows/table/{{$env.CUSTOMERS_TABLE_ID}}/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "merchant_id",
+              "value": "={{$('Parse AI Response').item.json.merchant_id}}"
+            },
+            {
+              "name": "full_name",
+              "value": "={{$('Parse AI Response').item.json.full_name}}"
+            },
+            {
+              "name": "national_id",
+              "value": "={{$('Parse AI Response').item.json.national_id}}"
+            },
+            {
+              "name": "mobile_number",
+              "value": "={{$('Parse AI Response').item.json.mobile_number}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "create-customer",
+      "name": "Create Customer",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2250, 150],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "baserow-auth",
+          "name": "Baserow API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge customer data\nconst aiData = $('Parse AI Response').item.json;\nconst checkResult = $('Check Customer Exists').item.json;\n\nlet customerId;\nif (checkResult.results && checkResult.results.length > 0) {\n  customerId = checkResult.results[0].id;\n} else {\n  customerId = $json.id;\n}\n\nreturn {\n  json: {\n    ...aiData,\n    customer_id: customerId\n  }\n};"
+      },
+      "id": "merge-customer-data",
+      "name": "Merge Customer Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2450, 50]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BASEROW_BASE_URL}}/api/database/rows/table/{{$env.LOANS_TABLE_ID}}/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "merchant_id",
+              "value": "={{$json.merchant_id}}"
+            },
+            {
+              "name": "customer_id",
+              "value": "={{$json.customer_id}}"
+            },
+            {
+              "name": "amount",
+              "value": "={{$json.amount}}"
+            },
+            {
+              "name": "receipt_number",
+              "value": "={{$json.receipt_number}}"
+            },
+            {
+              "name": "receipt_image_url",
+              "value": "={{$json.media_url}}"
+            },
+            {
+              "name": "status",
+              "value": "Active"
+            },
+            {
+              "name": "transaction_date",
+              "value": "={{$json.timestamp}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "create-loan",
+      "name": "Create Loan Record",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2650, 50],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "baserow-auth",
+          "name": "Baserow API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.whatsapp.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "messaging_product",
+              "value": "whatsapp"
+            },
+            {
+              "name": "to",
+              "value": "={{$('Parse AI Response').item.json.from_phone}}"
+            },
+            {
+              "name": "type",
+              "value": "text"
+            },
+            {
+              "name": "text",
+              "value": "={\"body\": \"✅ تم تسجيل الدين بنجاح\\n\\n👤 العميل: \" + $('Parse AI Response').item.json.full_name + \"\\n💰 المبلغ: \" + $('Parse AI Response').item.json.amount + \" ريال\\n📝 رقم الإيصال: \" + $json.receipt_number + \"\\n📅 التاريخ: \" + new Date().toLocaleDateString('ar-SA')}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-loan-confirmation",
+      "name": "Send Loan Confirmation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2850, 50],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "whatsapp-api-auth",
+          "name": "WhatsApp API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BASEROW_BASE_URL}}/api/database/rows/table/{{$env.LOANS_TABLE_ID}}/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filter__merchant_id__equal",
+              "value": "={{$json.merchant_id}}"
+            },
+            {
+              "name": "filter__status__equal",
+              "value": "Active"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-active-loans",
+      "name": "Fetch Active Loans",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1850, 250],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "baserow-auth",
+          "name": "Baserow API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Calculate total outstanding debt\nconst loans = $json.results || [];\nconst totalOutstanding = loans.reduce((sum, loan) => sum + parseFloat(loan.amount), 0);\nconst totalLoans = loans.length;\n\nreturn {\n  json: {\n    total_outstanding: totalOutstanding.toFixed(2),\n    total_loans: totalLoans,\n    merchant_name: $('Parse AI Response').item.json.merchant_name,\n    from_phone: $('Parse AI Response').item.json.from_phone\n  }\n};"
+      },
+      "id": "calculate-report",
+      "name": "Calculate Report",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2050, 250]
+    },
+    {
+      "parameters": {
+        "url": "https://api.whatsapp.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "messaging_product",
+              "value": "whatsapp"
+            },
+            {
+              "name": "to",
+              "value": "={{$json.from_phone}}"
+            },
+            {
+              "name": "type",
+              "value": "text"
+            },
+            {
+              "name": "text",
+              "value": "={\"body\": \"📊 تقرير الديون - \" + $json.merchant_name + \"\\n\\n💰 إجمالي الديون المستحقة: \" + $json.total_outstanding + \" ريال\\n📝 عدد الديون النشطة: \" + $json.total_loans + \"\\n📅 التاريخ: \" + new Date().toLocaleDateString('ar-SA') + \"\\n\\n✅ تم إنشاء التقرير بنجاح\"}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-report",
+      "name": "Send Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2250, 250],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "whatsapp-api-auth",
+          "name": "WhatsApp API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{$env.BASEROW_BASE_URL}}/api/database/rows/table/{{$env.LOANS_TABLE_ID}}/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "filter__merchant_id__equal",
+              "value": "={{$json.merchant_id}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "fetch-all-loans",
+      "name": "Fetch All Loans",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1850, 450],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "baserow-auth",
+          "name": "Baserow API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "toFile",
+        "fileFormat": "xlsx",
+        "options": {
+          "fileName": "loans_export_{{new Date().toISOString().split('T')[0]}}.xlsx",
+          "sheetName": "Loans"
+        }
+      },
+      "id": "generate-xlsx",
+      "name": "Generate XLSX",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 2,
+      "position": [2050, 450]
+    },
+    {
+      "parameters": {
+        "url": "https://api.whatsapp.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "messaging_product",
+              "value": "whatsapp"
+            },
+            {
+              "name": "to",
+              "value": "={{$('Parse AI Response').item.json.from_phone}}"
+            },
+            {
+              "name": "type",
+              "value": "document"
+            },
+            {
+              "name": "document",
+              "value": "={\"link\": $json.binary.data, \"filename\": \"loans_export.xlsx\", \"caption\": \"📊 ملف تصدير الديون\"}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-export-file",
+      "name": "Send Export File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2250, 450],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "whatsapp-api-auth",
+          "name": "WhatsApp API Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\": \"success\", \"message\": \"Webhook processed\"}",
+        "options": {}
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [3050, 300]
+    }
+  ],
+  "connections": {
+    "WhatsApp Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Phone & Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Phone & Message": {
+      "main": [
+        [
+          {
+            "node": "Lookup Merchant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Merchant": {
+      "main": [
+        [
+          {
+            "node": "Auth & Subscription Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth & Subscription Check": {
+      "main": [
+        [
+          {
+            "node": "Set Merchant Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Send Unauthorized Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Merchant Context": {
+      "main": [
+        [
+          {
+            "node": "Groq AI Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq AI Extraction": {
+      "main": [
+        [
+          {
+            "node": "Parse AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse AI Response": {
+      "main": [
+        [
+          {
+            "node": "Intent Router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intent Router": {
+      "main": [
+        [
+          {
+            "node": "Check Customer Exists",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch Active Loans",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [],
+        [
+          {
+            "node": "Fetch All Loans",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Customer Exists": {
+      "main": [
+        [
+          {
+            "node": "Customer Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Customer Exists?": {
+      "main": [
+        [
+          {
+            "node": "Create Customer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge Customer Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Customer": {
+      "main": [
+        [
+          {
+            "node": "Merge Customer Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Customer Data": {
+      "main": [
+        [
+          {
+            "node": "Create Loan Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Loan Record": {
+      "main": [
+        [
+          {
+            "node": "Send Loan Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Loan Confirmation": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Active Loans": {
+      "main": [
+        [
+          {
+            "node": "Calculate Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Report": {
+      "main": [
+        [
+          {
+            "node": "Send Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Report": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch All Loans": {
+      "main": [
+        [
+          {
+            "node": "Generate XLSX",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate XLSX": {
+      "main": [
+        [
+          {
+            "node": "Send Export File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Export File": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Unauthorized Reply": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2026-02-15T19:20:00.000Z",
+  "versionId": "1"
+}

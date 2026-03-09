@@ -1,0 +1,320 @@
+.loan-form-container {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    gap: 24px;
+    align-items: start;
+}
+
+@media (max-width: 900px) {
+    .loan-form-container {
+        grid-template-columns: 1fr;
+    }
+}
+
+.loan-form {
+    background: linear-gradient(150deg, color-mix(in srgb, var(--bg-card) 92%, #2f4678 8%), var(--bg-card));
+    border: 1px solid color-mix(in srgb, var(--border) 72%, rgba(255, 255, 255, 0.32));
+    border-radius: 1.2rem;
+    box-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
+    transition: all 0.3s ease;
+    padding: 2.5rem;
+}
+
+.form-section {
+    margin-bottom: 28px;
+    padding-bottom: 24px;
+    border-bottom: 1px solid var(--border);
+}
+
+.form-section:last-of-type {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+
+.form-section h2 {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 18px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.form-section h2::before {
+    content: '';
+    display: inline-block;
+    width: 4px;
+    height: 20px;
+    background: var(--coral);
+    border-radius: 2px;
+}
+
+.form-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+@media (max-width: 640px) {
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.form-group label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.form-group small {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.input {
+    min-height: 50px;
+    background: color-mix(in srgb, var(--bg-card) 92%, transparent);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+    border-radius: 1rem;
+    box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08);
+    padding-left: 1rem;
+    padding-right: 1rem;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+    font-size: 0.95rem;
+    color: var(--text-primary);
+    transition: all 0.2s ease;
+}
+
+.input:focus {
+    outline: none;
+    border-color: color-mix(in srgb, var(--coral) 74%, #ffffff 26%);
+    box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.18);
+}
+
+.input::placeholder {
+    color: var(--text-muted);
+}
+
+.input.calculated {
+    background: color-mix(in srgb, var(--bg) 85%, transparent);
+    color: var(--text-secondary);
+}
+
+.input.total {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--coral);
+}
+
+.total-amount {
+    position: relative;
+}
+
+.currency {
+    position: absolute;
+    left: 16px;
+    bottom: 11px;
+    font-size: 13px;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.numeric-field {
+    direction: ltr;
+    text-align: left;
+    font-variant-numeric: tabular-nums;
+}
+
+.form-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+}
+
+.btn-outline {
+    background: transparent;
+    border: 1.5px solid var(--border);
+    color: var(--text-secondary);
+    padding: 10px 20px;
+    border-radius: var(--r-md);
+    font-size: 14px;
+    font-weight: 600;
+    transition: all var(--t-fast);
+}
+
+.btn-outline:hover {
+    border-color: var(--coral);
+    color: var(--coral);
+}
+
+.error-message {
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    color: var(--danger);
+    padding: 12px 16px;
+    border-radius: var(--r-md);
+    font-size: 14px;
+    margin-bottom: 12px;
+}
+
+.success-message {
+    background: rgba(34, 197, 94, 0.08);
+    border: 1px solid rgba(34, 197, 94, 0.2);
+    color: var(--success);
+    padding: 12px 16px;
+    border-radius: var(--r-md);
+    font-size: 14px;
+    margin-bottom: 12px;
+}
+
+.loan-info-card {
+    background: linear-gradient(160deg, rgba(20, 36, 66, 0.95), rgba(17, 27, 54, 0.9));
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid rgba(123, 154, 231, 0.28);
+    border-radius: 1.1rem;
+    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.35);
+    padding: 2rem;
+    position: sticky;
+    top: 1.25rem;
+    color: #dce7ff;
+}
+
+[data-theme="light"] .loan-info-card {
+    background: #ffffff !important;
+    border: 1px solid var(--slate-200) !important;
+    color: var(--slate-900) !important;
+}
+
+[data-theme="light"] .loan-info-card h3 {
+    color: var(--slate-900) !important;
+}
+
+[data-theme="light"] .loan-info-card li {
+    color: var(--slate-700) !important;
+}
+
+.loan-info-card h3 {
+    font-size: 16px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    opacity: 0.9;
+}
+
+.loan-info-card ul {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.loan-info-card li {
+    font-size: 13px;
+    opacity: 0.92;
+    line-height: 1.5;
+    padding-right: 16px;
+    position: relative;
+}
+
+.loan-info-card li::before {
+    content: '←';
+    position: absolute;
+    right: 0;
+    color: var(--coral);
+    opacity: 1;
+}
+
+.najiz-fields {
+    background: rgba(96, 165, 250, 0.03);
+    padding: 20px !important;
+    border-radius: var(--r-lg);
+    border: 1px dashed var(--coral-light);
+    margin-top: 10px;
+}
+
+.najiz-fields h3 {
+    color: var(--coral) !important;
+    font-size: 14px !important;
+    margin-bottom: 12px !important;
+}
+
+.najiz-fields h3::before {
+    background: var(--coral) !important;
+}
+
+.form-group select.input {
+    appearance: auto;
+    cursor: pointer;
+}
+
+.import-assistant-card {
+    margin-top: 16px;
+}
+
+.import-helper-note {
+    font-size: 13px;
+    color: rgba(223, 236, 255, 0.86);
+    line-height: 1.6;
+    margin-bottom: 12px;
+}
+
+.import-order-list {
+    margin: 0 0 14px;
+    padding-right: 16px;
+    display: grid;
+    gap: 7px;
+}
+
+.import-order-list li {
+    font-size: 13px;
+    color: rgba(223, 236, 255, 0.92);
+}
+
+.import-order-list code {
+    background: rgba(148, 163, 184, 0.2);
+    border: 1px solid rgba(148, 163, 184, 0.34);
+    border-radius: 7px;
+    padding: 0 6px;
+    font-size: 11px;
+    color: #f8fafc;
+}
+
+.import-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+}
+
+.import-hidden-input {
+    display: none;
+}
+
+.import-meta {
+    margin-top: 10px;
+    font-size: 12px;
+    color: rgba(226, 232, 240, 0.9);
+}
+
+.import-feedback {
+    margin-top: 10px;
+    margin-bottom: 0;
+}
+
+[data-theme="light"] .import-helper-note,
+[data-theme="light"] .import-order-list li {
+    color: var(--slate-700);
+}
