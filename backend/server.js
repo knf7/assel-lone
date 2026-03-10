@@ -224,6 +224,35 @@ app.get('/health', async (req, res) => {
     if (!allUp) payload.status = 'degraded';
     res.status(allUp ? 200 : 503).json(payload);
 });
+// Compatibility health route under /api
+app.get('/api/health', async (req, res) => {
+    const payload = {
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        services: {
+            database: 'unknown',
+            redis: 'unknown'
+        }
+    };
+
+    try {
+        await db.query('SELECT 1');
+        payload.services.database = 'up';
+    } catch (e) {
+        payload.services.database = 'down';
+    }
+
+    try {
+        await redis.ping();
+        payload.services.redis = 'up';
+    } catch (e) {
+        payload.services.redis = 'down';
+    }
+
+    const allUp = payload.services.database === 'up' && payload.services.redis === 'up';
+    if (!allUp) payload.status = 'degraded';
+    res.status(allUp ? 200 : 503).json(payload);
+});
 
 // API Routes
 // Clerk Webhooks (must be before json body parser for raw body access)
