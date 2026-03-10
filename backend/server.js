@@ -98,8 +98,15 @@ app.set('trust proxy', 1);
 app.use(cookieParser());
 app.use(helmet()); // Enable all Helmet security headers
 
-const allowedOrigins = [
+const parseOriginList = (value) =>
+    (value || '')
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+
+const allowedOrigins = new Set([
     process.env.FRONTEND_URL,
+    ...parseOriginList(process.env.FRONTEND_URLS),
     // Only trusted explicitly matching domains
     'https://aseel-saas.com',
     'https://app.aseel-saas.com',
@@ -107,11 +114,19 @@ const allowedOrigins = [
     'http://localhost:3000',
     'http://localhost:3001',
     'http://localhost:3003',
-].filter(Boolean);
+].filter(Boolean));
+
+const allowVercelPreviews = process.env.CORS_ALLOW_VERCEL === 'true';
+const isAllowedOrigin = (origin) => {
+    if (!origin) return true;
+    if (allowedOrigins.has(origin)) return true;
+    if (allowVercelPreviews && origin.endsWith('.vercel.app')) return true;
+    return false;
+};
 
 app.use(cors({
     origin: function (origin, callback) {
-        if (!origin || allowedOrigins.includes(origin)) {
+        if (isAllowedOrigin(origin)) {
             callback(null, true);
         } else {
             callback(new Error('Not allowed by CORS'));
