@@ -2,6 +2,7 @@ const express = require('express');
 const ExcelJS = require('exceljs');
 const db = require('../config/database');
 const { authenticateToken, injectMerchantId, checkPermission } = require('../middleware/auth');
+const { getCache, setCache } = require('../utils/cache');
 
 const router = express.Router();
 
@@ -18,155 +19,156 @@ router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res)
     try {
         const id = req.merchantId;
         const isMockedDb = Boolean(db.query && db.query._isMockFunction);
+        const cacheKey = `reports:dashboard:${id}`;
+        const cached = await getCache(cacheKey);
+        if (cached) {
+            res.set('Cache-Control', 'private, max-age=30');
+            return res.json(cached);
+        }
 
-        // 1) Total outstanding debt (Active loans only)
-        const debtRes = await db.query(
-            `SELECT COALESCE(SUM(amount), 0) AS total_debt
-             FROM loans WHERE merchant_id = $1 AND status = 'Active'`,
-            [id]
-        );
-
-        // 2) Total & active customers
-        const custRes = await db.query(
-            `SELECT
-               COUNT(*) AS total_customers,
-               COUNT(CASE WHEN total_active > 0 THEN 1 END) AS active_customers
-             FROM (
-               SELECT c.id,
-                 COUNT(CASE WHEN l.status = 'Active' THEN 1 END) AS total_active
-               FROM customers c
-               LEFT JOIN loans l ON l.customer_id = c.id AND l.merchant_id = c.merchant_id
-               WHERE c.merchant_id = $1
-               GROUP BY c.id
-             ) sub`,
-            [id]
-        );
-
-        // 3) Loans added this calendar month
-        const monthRes = await db.query(
-            `SELECT COUNT(*) AS count
-             FROM loans
-             WHERE merchant_id = $1
-               AND DATE_TRUNC('month', created_at) = DATE_TRUNC('month', CURRENT_DATE)`,
-            [id]
-        );
-
-        // 4) Collection rate (Paid / Total)
-        const rateRes = await db.query(
-            `SELECT
-               COALESCE(SUM(
-                 CASE
-                   WHEN status = 'Paid' AND (COALESCE(is_najiz_case, false) = true OR najiz_case_number IS NOT NULL)
-                     THEN COALESCE(NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount, 0)
-                   WHEN status = 'Paid'
-                     THEN amount
-                   ELSE 0
-                 END
-               ), 0) AS paid,
-               COALESCE(SUM(amount), 0) AS total
-             FROM loans WHERE merchant_id = $1`,
-            [id]
-        );
-
-        // 5) Overdue customers — Active loans where transaction_date is > 30 days ago
-        const overdueRes = await db.query(
-            `SELECT COUNT(DISTINCT customer_id) AS overdue_count
-             FROM loans
-             WHERE merchant_id = $1
-               AND status = 'Active'
-               AND transaction_date < CURRENT_DATE - INTERVAL '30 days'`,
-            [id]
-        );
-
-        // 5b) Raised Count (Najiz Cases)
-        const raisedRes = isMockedDb
-            ? { rows: [{ count: 0 }] }
-            : await db.query(
-                `SELECT COUNT(*) AS count FROM loans WHERE merchant_id = $1 AND status = 'Raised'`,
+        const [
+            debtRes,
+            custRes,
+            monthRes,
+            rateRes,
+            overdueRes,
+            raisedRes,
+            recentRes,
+            najizSummaryRes,
+            najizDetailsRes
+        ] = await Promise.all([
+            db.query(
+                `SELECT COALESCE(SUM(amount), 0) AS total_debt
+                 FROM loans WHERE merchant_id = $1 AND status = 'Active'`,
                 [id]
-            );
-
-        // 6) Recent activity
-        const recentRes = await db.query(
-            `SELECT l.id, l.amount, l.status, l.created_at, l.transaction_date,
-                    c.full_name AS customer_name, c.mobile_number
-             FROM loans l
-             LEFT JOIN customers c ON l.customer_id = c.id
-             WHERE l.merchant_id = $1
-             ORDER BY l.created_at DESC
-             LIMIT 10`,
-            [id]
-        );
-
-        // 7) Najiz summary amounts and counts
-        const najizSummaryRes = isMockedDb
-            ? { rows: [{}] }
-            : await db.query(
+            ),
+            db.query(
                 `SELECT
-               COUNT(*) FILTER (
-                 WHERE COALESCE(is_najiz_case, false) = true
-                    OR najiz_case_number IS NOT NULL
-                    OR status = 'Raised'
-               ) AS total_cases,
-               COUNT(*) FILTER (WHERE status = 'Raised') AS active_cases,
-               COUNT(*) FILTER (
-                 WHERE status = 'Paid'
+                   COUNT(*) AS total_customers,
+                   COUNT(CASE WHEN total_active > 0 THEN 1 END) AS active_customers
+                 FROM (
+                   SELECT c.id,
+                     COUNT(CASE WHEN l.status = 'Active' THEN 1 END) AS total_active
+                   FROM customers c
+                   LEFT JOIN loans l ON l.customer_id = c.id AND l.merchant_id = c.merchant_id
+                   WHERE c.merchant_id = $1
+                   GROUP BY c.id
+                 ) sub`,
+                [id]
+            ),
+            db.query(
+                `SELECT COUNT(*) AS count
+                 FROM loans
+                 WHERE merchant_id = $1
+                   AND DATE_TRUNC('month', created_at) = DATE_TRUNC('month', CURRENT_DATE)`,
+                [id]
+            ),
+            db.query(
+                `SELECT
+                   COALESCE(SUM(
+                     CASE
+                       WHEN status = 'Paid' AND (COALESCE(is_najiz_case, false) = true OR najiz_case_number IS NOT NULL)
+                         THEN COALESCE(NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount, 0)
+                       WHEN status = 'Paid'
+                         THEN amount
+                       ELSE 0
+                     END
+                   ), 0) AS paid,
+                   COALESCE(SUM(amount), 0) AS total
+                 FROM loans WHERE merchant_id = $1`,
+                [id]
+            ),
+            db.query(
+                `SELECT COUNT(DISTINCT customer_id) AS overdue_count
+                 FROM loans
+                 WHERE merchant_id = $1
+                   AND status = 'Active'
+                   AND transaction_date < CURRENT_DATE - INTERVAL '30 days'`,
+                [id]
+            ),
+            isMockedDb
+                ? Promise.resolve({ rows: [{ count: 0 }] })
+                : db.query(
+                    `SELECT COUNT(*) AS count FROM loans WHERE merchant_id = $1 AND status = 'Raised'`,
+                    [id]
+                ),
+            db.query(
+                `SELECT l.id, l.amount, l.status, l.created_at, l.transaction_date,
+                        c.full_name AS customer_name, c.mobile_number
+                 FROM loans l
+                 LEFT JOIN customers c ON l.customer_id = c.id
+                 WHERE l.merchant_id = $1
+                 ORDER BY l.created_at DESC
+                 LIMIT 10`,
+                [id]
+            ),
+            isMockedDb
+                ? Promise.resolve({ rows: [{}] })
+                : db.query(
+                    `SELECT
+                   COUNT(*) FILTER (
+                     WHERE COALESCE(is_najiz_case, false) = true
+                        OR najiz_case_number IS NOT NULL
+                        OR status = 'Raised'
+                   ) AS total_cases,
+                   COUNT(*) FILTER (WHERE status = 'Raised') AS active_cases,
+                   COUNT(*) FILTER (
+                     WHERE status = 'Paid'
+                       AND (
+                         COALESCE(is_najiz_case, false) = true
+                         OR najiz_case_number IS NOT NULL
+                       )
+                   ) AS paid_cases,
+                   COALESCE(SUM(COALESCE(najiz_case_amount, 0)) FILTER (
+                     WHERE COALESCE(is_najiz_case, false) = true
+                        OR najiz_case_number IS NOT NULL
+                        OR status = 'Raised'
+                   ), 0) AS total_raised_amount,
+                   COALESCE(SUM(
+                     CASE
+                       WHEN status = 'Paid'
+                         THEN COALESCE(NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount)
+                       ELSE COALESCE(najiz_collected_amount, 0)
+                     END
+                   ) FILTER (
+                     WHERE COALESCE(is_najiz_case, false) = true
+                        OR najiz_case_number IS NOT NULL
+                        OR status = 'Raised'
+                   ), 0) AS total_collected_amount
+                 FROM loans
+                 WHERE merchant_id = $1
+                   AND deleted_at IS NULL`,
+                    [id]
+                ),
+            isMockedDb
+                ? Promise.resolve({ rows: [] })
+                : db.query(
+                    `SELECT
+                   l.id,
+                   l.status,
+                   l.transaction_date,
+                   l.updated_at,
+                   l.najiz_case_number,
+                   l.najiz_case_amount,
+                   l.najiz_collected_amount,
+                   l.najiz_status,
+                   l.najiz_plaintiff_name,
+                   c.full_name AS customer_name,
+                   c.national_id
+                 FROM loans l
+                 LEFT JOIN customers c ON l.customer_id = c.id
+                 WHERE l.merchant_id = $1
+                   AND l.deleted_at IS NULL
                    AND (
-                     COALESCE(is_najiz_case, false) = true
-                     OR najiz_case_number IS NOT NULL
+                     COALESCE(l.is_najiz_case, false) = true
+                     OR l.najiz_case_number IS NOT NULL
+                     OR l.status = 'Raised'
                    )
-               ) AS paid_cases,
-               COALESCE(SUM(COALESCE(najiz_case_amount, 0)) FILTER (
-                 WHERE COALESCE(is_najiz_case, false) = true
-                    OR najiz_case_number IS NOT NULL
-                    OR status = 'Raised'
-               ), 0) AS total_raised_amount,
-               COALESCE(SUM(
-                 CASE
-                   WHEN status = 'Paid'
-                     THEN COALESCE(NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount)
-                   ELSE COALESCE(najiz_collected_amount, 0)
-                 END
-               ) FILTER (
-                 WHERE COALESCE(is_najiz_case, false) = true
-                    OR najiz_case_number IS NOT NULL
-                    OR status = 'Raised'
-               ), 0) AS total_collected_amount
-             FROM loans
-             WHERE merchant_id = $1
-               AND deleted_at IS NULL`,
-                [id]
-            );
-
-        // 8) Najiz details list for dashboard
-        const najizDetailsRes = isMockedDb
-            ? { rows: [] }
-            : await db.query(
-                `SELECT
-               l.id,
-               l.status,
-               l.transaction_date,
-               l.updated_at,
-               l.najiz_case_number,
-               l.najiz_case_amount,
-               l.najiz_collected_amount,
-               l.najiz_status,
-               l.najiz_plaintiff_name,
-               c.full_name AS customer_name,
-               c.national_id
-             FROM loans l
-             LEFT JOIN customers c ON l.customer_id = c.id
-             WHERE l.merchant_id = $1
-               AND l.deleted_at IS NULL
-               AND (
-                 COALESCE(l.is_najiz_case, false) = true
-                 OR l.najiz_case_number IS NOT NULL
-                 OR l.status = 'Raised'
-               )
-             ORDER BY COALESCE(l.najiz_raised_date, l.updated_at, l.created_at) DESC
-             LIMIT 8`,
-                [id]
-            );
+                 ORDER BY COALESCE(l.najiz_raised_date, l.updated_at, l.created_at) DESC
+                 LIMIT 8`,
+                    [id]
+                )
+        ]);
 
         const paid = parseFloat(rateRes.rows[0].paid);
         const total = parseFloat(rateRes.rows[0].total);
@@ -176,7 +178,7 @@ router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res)
         const totalCollectedAmount = Number(najizSummaryRow.total_collected_amount || 0);
         const remainingAmount = Math.max(totalRaisedAmount - totalCollectedAmount, 0);
 
-        res.json({
+        const payload = {
             metrics: {
                 totalDebt: parseFloat(debtRes.rows[0].total_debt),
                 totalCustomers: parseInt(custRes.rows[0].total_customers),
@@ -199,7 +201,12 @@ router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res)
                 remainingAmount
             },
             najizDetails: najizDetailsRes.rows
-        });
+        };
+
+        const ttlSeconds = Number(process.env.REPORTS_CACHE_TTL || 30);
+        await setCache(cacheKey, payload, Number.isFinite(ttlSeconds) ? ttlSeconds : 30);
+        res.set('Cache-Control', 'private, max-age=30');
+        res.json(payload);
     } catch (err) {
         console.error('Dashboard error:', err);
         res.status(500).json({ error: 'Failed to fetch dashboard data' });
@@ -212,8 +219,14 @@ router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res)
 router.get('/analytics', checkPermission('can_view_analytics'), async (req, res) => {
     try {
         const id = req.merchantId;
-
         const interval = req.query.interval || 'month';
+        const cacheKey = `reports:analytics:${id}:${interval}`;
+        const cached = await getCache(cacheKey);
+        if (cached) {
+            res.set('Cache-Control', 'private, max-age=60');
+            return res.json(cached);
+        }
+
         let groupInterval = 'month';
         let dateFormat = 'YYYY-MM';
         let intervalSql = '12 months';
@@ -236,127 +249,126 @@ router.get('/analytics', checkPermission('can_view_analytics'), async (req, res)
             intervalSql = '6 months';
         }
 
-        const trendRes = await db.query(
-            `SELECT
-               TO_CHAR(DATE_TRUNC($2, transaction_date), $3) AS month,
-               SUM(amount)  AS total,
-               COUNT(*)     AS loan_count
-             FROM loans
-             WHERE merchant_id = $1
-               AND deleted_at IS NULL
-               AND transaction_date >= CURRENT_DATE - CAST($4 AS INTERVAL)
-             GROUP BY DATE_TRUNC($2, transaction_date)
-             ORDER BY DATE_TRUNC($2, transaction_date) ASC`,
-            [id, groupInterval, dateFormat, intervalSql]
-        );
-
-        // Status distribution with amounts
-        const distRes = await db.query(
-            `SELECT
-               status,
-               COUNT(*)     AS count,
-               SUM(amount)  AS total
-             FROM loans WHERE merchant_id = $1 AND deleted_at IS NULL
-             GROUP BY status
-             ORDER BY count DESC`,
-            [id]
-        );
-
-        // Top 10 debtors (Active loans)
-        const debtorsRes = await db.query(
-            `SELECT c.full_name, c.mobile_number,
-                    SUM(l.amount) AS total_debt,
-                    COUNT(l.id)   AS loan_count
-             FROM customers c
-             JOIN loans l ON l.customer_id = c.id
-             WHERE c.merchant_id = $1 AND l.status = 'Active' AND l.deleted_at IS NULL
-             GROUP BY c.id, c.full_name, c.mobile_number
-             ORDER BY total_debt DESC
-             LIMIT 10`,
-            [id]
-        );
-
-        // Overdue breakdown — how many days overdue (Active loans > 30 days)
-        const overdueRes = await db.query(
-            `SELECT
-               CASE
-                 WHEN age_days BETWEEN 30  AND 60  THEN '30-60 يوم'
-                 WHEN age_days BETWEEN 61  AND 90  THEN '61-90 يوم'
-                 WHEN age_days BETWEEN 91  AND 180 THEN '91-180 يوم'
-                 ELSE '+180 يوم'
-               END AS bucket,
-               COUNT(*) AS count,
-               SUM(amount) AS total
-             FROM (
-               SELECT amount,
-                      EXTRACT(DAY FROM CURRENT_DATE - transaction_date)::int AS age_days
-               FROM loans
-               WHERE merchant_id = $1
-                 AND deleted_at IS NULL
-                 AND status = 'Active'
-                 AND transaction_date < CURRENT_DATE - INTERVAL '30 days'
-             ) sub
-             GROUP BY bucket
-             ORDER BY MIN(age_days)`,
-            [id]
-        );
-
-        // Monthly collection (Paid loans per month), using Najiz collected amount for case-based loans.
-        const collectionRes = await db.query(
-            `SELECT
-               TO_CHAR(DATE_TRUNC('month', updated_at), 'YYYY-MM') AS month,
-               SUM(
-                 CASE
-                   WHEN COALESCE(is_najiz_case, false) = true
-                     THEN COALESCE(NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount)
-                   ELSE amount
-                 END
-               ) AS collected,
-               COUNT(*)     AS count
-             FROM loans
-             WHERE merchant_id = $1 AND status = 'Paid'
-               AND deleted_at IS NULL
-               AND updated_at >= CURRENT_DATE - INTERVAL '12 months'
-             GROUP BY DATE_TRUNC('month', updated_at)
-             ORDER BY month ASC`,
-            [id]
-        );
-
-        // Profit split: regular loans profit vs Najiz cases extra profit.
-        const profitSplitRes = await db.query(
-            `SELECT
-               COALESCE(SUM(
-                 CASE
-                   WHEN status = 'Paid' AND COALESCE(is_najiz_case, false) = false
-                     THEN GREATEST(amount - COALESCE(NULLIF(principal_amount, 0), amount), 0)
-                   ELSE 0
-                 END
-               ), 0) AS regular_profit,
-               COALESCE(SUM(
-                 CASE
-                   WHEN status = 'Paid' AND COALESCE(is_najiz_case, false) = true
-                     THEN GREATEST(COALESCE(NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount) - amount, 0)
-                   ELSE 0
-                 END
-               ), 0) AS najiz_profit,
-               COALESCE(SUM(
-                 CASE
-                   WHEN status = 'Paid' AND COALESCE(is_najiz_case, false) = false THEN amount
-                   ELSE 0
-                 END
-               ), 0) AS regular_collected,
-               COALESCE(SUM(
-                 CASE
-                   WHEN status = 'Paid' AND COALESCE(is_najiz_case, false) = true
-                     THEN COALESCE(NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount)
-                   ELSE 0
-                 END
-               ), 0) AS najiz_collected,
-               COALESCE(SUM(amount), 0) AS portfolio_total
-             FROM loans
-             WHERE merchant_id = $1 AND deleted_at IS NULL`,
-            [id]
-        );
+        const [
+            trendRes,
+            distRes,
+            debtorsRes,
+            overdueRes,
+            collectionRes,
+            profitSplitRes
+        ] = await Promise.all([
+            db.query(
+                `SELECT
+                   TO_CHAR(DATE_TRUNC($2, transaction_date), $3) AS month,
+                   SUM(amount)  AS total,
+                   COUNT(*)     AS loan_count
+                 FROM loans
+                 WHERE merchant_id = $1
+                   AND deleted_at IS NULL
+                   AND transaction_date >= CURRENT_DATE - CAST($4 AS INTERVAL)
+                 GROUP BY DATE_TRUNC($2, transaction_date)
+                 ORDER BY DATE_TRUNC($2, transaction_date) ASC`,
+                [id, groupInterval, dateFormat, intervalSql]
+            ),
+            db.query(
+                `SELECT
+                   status,
+                   COUNT(*)     AS count,
+                   SUM(amount)  AS total
+                 FROM loans WHERE merchant_id = $1 AND deleted_at IS NULL
+                 GROUP BY status
+                 ORDER BY count DESC`,
+                [id]
+            ),
+            db.query(
+                `SELECT c.full_name, c.mobile_number,
+                        SUM(l.amount) AS total_debt,
+                        COUNT(l.id)   AS loan_count
+                 FROM customers c
+                 JOIN loans l ON l.customer_id = c.id
+                 WHERE c.merchant_id = $1 AND l.status = 'Active' AND l.deleted_at IS NULL
+                 GROUP BY c.id, c.full_name, c.mobile_number
+                 ORDER BY total_debt DESC
+                 LIMIT 10`,
+                [id]
+            ),
+            db.query(
+                `SELECT
+                   CASE
+                     WHEN age_days BETWEEN 30  AND 60  THEN '30-60 يوم'
+                     WHEN age_days BETWEEN 61  AND 90  THEN '61-90 يوم'
+                     WHEN age_days BETWEEN 91  AND 180 THEN '91-180 يوم'
+                     ELSE '+180 يوم'
+                   END AS bucket,
+                   COUNT(*) AS count,
+                   SUM(amount) AS total
+                 FROM (
+                   SELECT amount,
+                          EXTRACT(DAY FROM CURRENT_DATE - transaction_date)::int AS age_days
+                   FROM loans
+                   WHERE merchant_id = $1
+                     AND deleted_at IS NULL
+                     AND status = 'Active'
+                     AND transaction_date < CURRENT_DATE - INTERVAL '30 days'
+                 ) sub
+                 GROUP BY bucket
+                 ORDER BY MIN(age_days)`,
+                [id]
+            ),
+            db.query(
+                `SELECT
+                   TO_CHAR(DATE_TRUNC('month', updated_at), 'YYYY-MM') AS month,
+                   SUM(
+                     CASE
+                       WHEN COALESCE(is_najiz_case, false) = true
+                         THEN COALESCE(NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount)
+                       ELSE amount
+                     END
+                   ) AS collected,
+                   COUNT(*)     AS count
+                 FROM loans
+                 WHERE merchant_id = $1 AND status = 'Paid'
+                   AND deleted_at IS NULL
+                   AND updated_at >= CURRENT_DATE - INTERVAL '12 months'
+                 GROUP BY DATE_TRUNC('month', updated_at)
+                 ORDER BY month ASC`,
+                [id]
+            ),
+            db.query(
+                `SELECT
+                   COALESCE(SUM(
+                     CASE
+                       WHEN status = 'Paid' AND COALESCE(is_najiz_case, false) = false
+                         THEN GREATEST(amount - COALESCE(NULLIF(principal_amount, 0), amount), 0)
+                       ELSE 0
+                     END
+                   ), 0) AS regular_profit,
+                   COALESCE(SUM(
+                     CASE
+                       WHEN status = 'Paid' AND COALESCE(is_najiz_case, false) = true
+                         THEN GREATEST(COALESCE(NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount) - amount, 0)
+                       ELSE 0
+                     END
+                   ), 0) AS najiz_profit,
+                   COALESCE(SUM(
+                     CASE
+                       WHEN status = 'Paid' AND COALESCE(is_najiz_case, false) = false THEN amount
+                       ELSE 0
+                     END
+                   ), 0) AS regular_collected,
+                   COALESCE(SUM(
+                     CASE
+                       WHEN status = 'Paid' AND COALESCE(is_najiz_case, false) = true
+                         THEN COALESCE(NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount)
+                       ELSE 0
+                     END
+                   ), 0) AS najiz_collected,
+                   COALESCE(SUM(amount), 0) AS portfolio_total
+                 FROM loans
+                 WHERE merchant_id = $1 AND deleted_at IS NULL`,
+                [id]
+            )
+        ]);
 
         const profitSplitRow = profitSplitRes.rows[0] || {};
         const regularCollected = Number(profitSplitRow.regular_collected || 0);
@@ -365,7 +377,7 @@ router.get('/analytics', checkPermission('can_view_analytics'), async (req, res)
         const totalCollected = regularCollected + najizCollected;
         const collectionRate = portfolioTotal > 0 ? Number(((totalCollected / portfolioTotal) * 100).toFixed(2)) : 0;
 
-        res.json({
+        const payload = {
             debtTrend: trendRes.rows,
             statusDistribution: distRes.rows,
             topDebtors: debtorsRes.rows,
@@ -383,7 +395,12 @@ router.get('/analytics', checkPermission('can_view_analytics'), async (req, res)
                 portfolioTotal,
                 collectionRate
             }
-        });
+        };
+
+        const ttlSeconds = Number(process.env.REPORTS_ANALYTICS_CACHE_TTL || 60);
+        await setCache(cacheKey, payload, Number.isFinite(ttlSeconds) ? ttlSeconds : 60);
+        res.set('Cache-Control', 'private, max-age=60');
+        res.json(payload);
     } catch (err) {
         console.error('Analytics error:', err);
         res.status(500).json({ error: 'Failed to fetch analytics' });

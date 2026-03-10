@@ -2,7 +2,6 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { employeesAPI, settingsAPI } from '@/lib/api';
-import { colorPalettes } from '@/lib/color-palettes';
 import './settings.css';
 
 type PermissionKey =
@@ -56,8 +55,6 @@ const PERMISSION_LABELS: Array<{ key: PermissionKey; label: string; hint: string
   { key: 'can_view_settings', label: 'صفحة الإعدادات', hint: 'الوصول إلى إعدادات الحساب' },
 ];
 
-const ALLOWED_PALETTE_IDS = new Set(colorPalettes.map((p) => p.id));
-
 function mergePermissions(perms?: Partial<EmployeePermissions>): EmployeePermissions {
   return { ...DEFAULT_PERMISSIONS, ...(perms || {}) };
 }
@@ -69,8 +66,7 @@ function extractApiError(error: unknown, fallback: string) {
 
 export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
-  const [activeSection, setActiveSection] = useState<'account' | 'employees' | 'appearance'>('account');
-  const [selectedPalette, setSelectedPalette] = useState('aero-silver');
+  const [activeSection, setActiveSection] = useState<'account' | 'employees'>('account');
 
   const [profile, setProfile] = useState({
     username: '',
@@ -106,26 +102,14 @@ export default function SettingsPage() {
       setLoading(true);
       await Promise.all([fetchProfile(), fetchEmployees()]);
       if (typeof window !== 'undefined') {
-        const savedPalette = localStorage.getItem('color_palette') || 'aero-silver';
-        const palette = ALLOWED_PALETTE_IDS.has(savedPalette) ? savedPalette : 'aero-silver';
+        const palette = 'aero-silver';
         localStorage.setItem('color_palette', palette);
         document.documentElement.setAttribute('data-color-palette', palette);
-        setSelectedPalette(palette);
       }
       setLoading(false);
     };
     boot();
   }, []);
-
-  const applyPalette = (paletteId: string) => {
-    if (!ALLOWED_PALETTE_IDS.has(paletteId)) return;
-    setSelectedPalette(paletteId);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('color_palette', paletteId);
-      document.documentElement.setAttribute('data-color-palette', paletteId);
-    }
-    setMessages((m) => ({ ...m, profile: 'تم تطبيق النظام اللوني بنجاح.' }));
-  };
 
   const fetchProfile = async () => {
     try {
@@ -237,14 +221,6 @@ export default function SettingsPage() {
           aria-selected={activeSection === 'employees'}
         >
           إعدادات الموظفين
-        </button>
-        <button
-          className={`settings-tab ${activeSection === 'appearance' ? 'active' : ''}`}
-          onClick={() => setActiveSection('appearance')}
-          role="tab"
-          aria-selected={activeSection === 'appearance'}
-        >
-          المظهر والألوان
         </button>
       </div>
 
@@ -404,50 +380,6 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {activeSection === 'appearance' && (
-        <div className="settings-card glass-card full-width">
-          <div className="card-header">
-            <div>
-              <h2>الأنظمة اللونية المقترحة</h2>
-              <p>اختر النظام اللوني الذي يعكس هوية أصيل المالي بثقة وفخامة</p>
-            </div>
-          </div>
-
-          <div className="palettes-grid">
-            {colorPalettes.map((palette) => {
-              const active = selectedPalette === palette.id;
-              return (
-                <button
-                  key={palette.id}
-                  type="button"
-                  className={`palette-card ${active ? 'active' : ''}`}
-                  onClick={() => applyPalette(palette.id)}
-                >
-                  <div className="palette-orb" />
-                  <div className="palette-swatches">
-                    <span style={{ background: palette.preview.primary }} />
-                    <span style={{ background: palette.preview.secondary }} />
-                    <span style={{ background: palette.preview.accent }} />
-                  </div>
-                  <h3>{palette.name}</h3>
-                  <p>{palette.description}</p>
-                  <div className="palette-values">
-                    {palette.values.map((value) => <span key={value}>{value}</span>)}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="palette-recommendation">
-            <h3>توصيتنا المهنية</h3>
-            <p>
-              للمؤسسات المالية والقانونية نوصي بـ <strong>الياقوت الملكي</strong> أو <strong>الزمرد الداكن</strong>،
-              لأنهما يجمعان بين الثقة العالية والفخامة. وإذا رغبت بمظهر أكثر صلابة وحداثة فاختر <strong>الجرانيت الملكي</strong>.
-            </p>
-          </div>
-        </div>
-      )}
 
       {showEmployeeModal && (
         <EmployeeModal

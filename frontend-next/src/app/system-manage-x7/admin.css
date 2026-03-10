@@ -21,7 +21,7 @@
     align-items: center;
     justify-content: center;
     background: radial-gradient(circle at center, #f1f5f9 0%, #e2e8f0 100%);
-    font-family: 'Inter', 'Cairo', sans-serif;
+    font-family: var(--font);
 }
 
 .admin-login-card {
@@ -84,7 +84,7 @@
     background: var(--admin-bg);
     color: var(--admin-text);
     direction: rtl;
-    font-family: 'Inter', 'Cairo', sans-serif;
+    font-family: var(--font);
     overflow: hidden;
 }
 

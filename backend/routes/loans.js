@@ -241,15 +241,37 @@ router.post('/upload', authenticateToken, injectMerchantId, checkPermission('can
         return null;
     };
 
+    const normalize = (k) => String(k || '').trim().toLowerCase().replace(/\s+/g, '');
+
     const pick = (obj, keys) => {
-        const normalize = k => k.trim().toLowerCase().replace(/\s+/g, '');
         const objKeys = Object.keys(obj);
         for (const alias of keys) {
             const normalizedAlias = normalize(alias);
-            const foundKey = objKeys.find(k => normalize(k) === normalizedAlias || k.includes(alias));
+            const foundKey = objKeys.find(k => normalize(k) === normalizedAlias || normalize(k).includes(normalizedAlias));
             if (foundKey) return obj[foundKey];
         }
         return null;
+    };
+
+    const hasColumn = (headers, keys) => {
+        return headers.some((header) => {
+            const normalizedHeader = normalize(header);
+            return keys.some((alias) => normalizedHeader === normalize(alias) || normalizedHeader.includes(normalize(alias)));
+        });
+    };
+
+    const validateHeaders = (headers) => {
+        const missing = [];
+        if (!hasColumn(headers, NATIONAL_ID_KEYS)) missing.push('رقم الهوية');
+        if (!hasColumn(headers, FULL_NAME_KEYS)) missing.push('الاسم');
+        if (!hasColumn(headers, AMOUNT_KEYS)) missing.push('المبلغ');
+        return missing;
+    };
+
+    const makeHeaderError = (missing) => {
+        const err = new Error(`الملف لا يحتوي الأعمدة المطلوبة: ${missing.join('، ')}`);
+        err.statusCode = 400;
+        return err;
     };
 
     // ── Helper: Process a batch of rows ──────────────────
@@ -406,9 +428,18 @@ router.post('/upload', authenticateToken, injectMerchantId, checkPermission('can
         const isCsv = req.file.mimetype === 'text/csv' || req.file.originalname.toLowerCase().endsWith('.csv');
 
         if (isCsv) {
+            let headerChecked = false;
             await new Promise((resolve, reject) => {
                 const stream = fs.createReadStream(filePath).pipe(csv());
                 stream.on('data', async (row) => {
+                    if (!headerChecked) {
+                        const missing = validateHeaders(Object.keys(row || {}));
+                        if (missing.length > 0) {
+                            stream.destroy(makeHeaderError(missing));
+                            return;
+                        }
+                        headerChecked = true;
+                    }
                     totalProcessed++;
                     currentBatch.push(row);
                     if (currentBatch.length >= BATCH_SIZE) {
@@ -446,6 +477,11 @@ router.post('/upload', authenticateToken, injectMerchantId, checkPermission('can
             ws.getRow(1).eachCell((cell, col) => {
                 headers[col] = cell.value ? String(cell.value).trim() : `col_${col}`;
             });
+            const missing = validateHeaders(headers.filter(Boolean));
+            if (missing.length > 0) {
+                if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+                return res.status(400).json({ error: `الملف لا يحتوي الأعمدة المطلوبة: ${missing.join('، ')}` });
+            }
             const wsRows = [];
             ws.eachRow((row, rowNum) => {
                 if (rowNum === 1) return;
@@ -482,7 +518,9 @@ router.post('/upload', authenticateToken, injectMerchantId, checkPermission('can
     } catch (err) {
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
         console.error('Upload error:', err);
-        return res.status(500).json({ error: `فشل معالجة الملف: ${err.message}` });
+        const status = err.statusCode || 500;
+        const message = status === 400 ? err.message : `فشل معالجة الملف: ${err.message}`;
+        return res.status(status).json({ error: message });
     }
 });
 

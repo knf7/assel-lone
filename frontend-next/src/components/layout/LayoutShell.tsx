@@ -13,6 +13,8 @@ import {
   IconPlus,
   IconScale,
   IconSettings,
+  IconStar,
+  IconDiamond,
   IconStore,
   IconUpload,
   IconUsers,
@@ -56,7 +58,7 @@ const GROUP_LABELS: Record<NavItem['group'], string> = {
   system: 'النظام',
 };
 
-const ALLOWED_PALETTES = new Set(['aero-silver', 'dark-emerald', 'royal-granite']);
+const ALLOWED_PALETTES = new Set(['aero-silver']);
 
 function AseelLogoMark({ compact = false }: { compact?: boolean }) {
   return (
@@ -168,8 +170,7 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
   }, [darkMode]);
 
   useEffect(() => {
-    const savedPalette = localStorage.getItem('color_palette') || 'aero-silver';
-    const palette = ALLOWED_PALETTES.has(savedPalette) ? savedPalette : 'aero-silver';
+    const palette = 'aero-silver';
     localStorage.setItem('color_palette', palette);
     document.documentElement.setAttribute('data-color-palette', palette);
   }, []);
@@ -330,7 +331,9 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
             aria-label={darkMode ? 'تفعيل الوضع النهاري' : 'تفعيل الوضع الليلي'}
             aria-pressed={darkMode}
           >
-            <span className="theme-icon" aria-hidden="true">{darkMode ? '☀️' : '🌙'}</span>
+            <span className="theme-icon" aria-hidden="true">
+              {darkMode ? <IconDiamond size={18} /> : <IconStar size={18} />}
+            </span>
             {!collapsed && <span className="theme-label">{darkMode ? 'وضع نهاري' : 'وضع ليلي'}</span>}
           </button>
 

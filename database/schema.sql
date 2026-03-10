@@ -8,11 +8,20 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Merchant status enum
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'merchant_status') THEN
+        CREATE TYPE merchant_status AS ENUM ('pending', 'approved', 'rejected');
+    END IF;
+END $$;
+
 -- =====================================================
 -- TABLE: merchants (Tenants)
 -- =====================================================
 CREATE TABLE merchants (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    username VARCHAR(30) NOT NULL UNIQUE,
     business_name VARCHAR(255) NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
@@ -25,9 +34,15 @@ CREATE TABLE merchants (
     -- Subscription Management
     subscription_plan VARCHAR(20) NOT NULL DEFAULT 'Free' CHECK (subscription_plan IN ('Free', 'Pro', 'Enterprise')),
     subscription_status VARCHAR(20) NOT NULL DEFAULT 'Active' CHECK (subscription_status IN ('Active', 'Inactive', 'Cancelled', 'PastDue')),
+    status merchant_status DEFAULT 'pending',
     stripe_customer_id VARCHAR(100) UNIQUE,
     stripe_subscription_id VARCHAR(100) UNIQUE,
     expiry_date TIMESTAMP,
+
+    -- Security
+    failed_login_attempts INT DEFAULT 0,
+    locked_until TIMESTAMP,
+    session_version INT DEFAULT 1,
     
     -- Metadata
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -261,6 +276,7 @@ CREATE POLICY merchant_payments_policy ON payment_history
 
 -- Insert sample merchant
 INSERT INTO merchants (
+    username,
     business_name, 
     email, 
     password_hash, 
@@ -268,8 +284,10 @@ INSERT INTO merchants (
     whatsapp_phone_id,
     subscription_plan,
     subscription_status,
+    status,
     expiry_date
 ) VALUES (
+    'testmerchant',
     'Test Merchant Store',
     'test@merchant.com',
     '$2b$10$abcdefghijklmnopqrstuvwxyz1234567890', -- bcrypt hash
@@ -277,6 +295,7 @@ INSERT INTO merchants (
     '+966500000000',
     'Pro',
     'Active',
+    'approved',
     CURRENT_TIMESTAMP + INTERVAL '30 days'
 );
 

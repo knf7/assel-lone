@@ -13,7 +13,7 @@ export default function NotFound() {
             alignItems: 'center',
             justifyContent: 'center',
             background: 'var(--bg-navy)',
-            fontFamily: "'Cairo', 'Tajawal', sans-serif",
+            fontFamily: "var(--font)",
             direction: 'rtl',
             padding: '20px',
             textAlign: 'center',
