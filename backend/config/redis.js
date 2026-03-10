@@ -1,25 +1,34 @@
 const Redis = require('ioredis');
 
-const redisOptions = {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '6379', 10),
-    maxRetriesPerRequest: null,
-    retryStrategy(times) {
-        if (times > 3) return null;
-        return Math.min(times * 200, 2000);
-    },
-};
+const useRedis = !!process.env.REDIS_HOST || !!process.env.REDIS_URL;
+let redis;
 
-if (process.env.REDIS_PASSWORD) {
-    redisOptions.password = process.env.REDIS_PASSWORD;
+if (useRedis) {
+    const redisOptions = {
+        host: process.env.REDIS_HOST || 'localhost',
+        port: parseInt(process.env.REDIS_PORT || '6379', 10),
+        maxRetriesPerRequest: null,
+        retryStrategy(times) {
+            if (times > 3) return null;
+            return Math.min(times * 200, 2000);
+        },
+    };
+    if (process.env.REDIS_PASSWORD) redisOptions.password = process.env.REDIS_PASSWORD;
+    redis = new Redis({ ...redisOptions });
+    redis.on('connect', () => console.log('✅ Redis connected'));
+    redis.on('error', (err) => console.error('❌ Redis error:', err.message));
+} else {
+    // Lightweight in-memory fallback for serverless (no persistence, per-instance only)
+    console.warn('⚠️ REDIS_HOST not set; using in-memory store (non-persistent)');
+    const store = new Map();
+    const setex = (key, ttlSeconds, value) => {
+        store.set(key, value);
+        setTimeout(() => store.delete(key), ttlSeconds * 1000);
+    };
+    const get = (key) => Promise.resolve(store.get(key) || null);
+    const del = (key) => Promise.resolve(store.delete(key));
+    redis = { setex, get, del };
 }
-
-const redis = new Redis({
-    ...redisOptions,
-});
-
-redis.on('connect', () => console.log('✅ Redis connected'));
-redis.on('error', (err) => console.error('❌ Redis error:', err.message));
 
 // ── OTP helpers ──
 
