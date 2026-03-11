@@ -25,8 +25,8 @@ export default function RegisterPage() {
 
     return (
         <section className="glass-card auth-card">
-            <h1 className="text-4xl font-black text-slate-900 mb-2 tracking-tight">إنشاء حساب جديد</h1>
-            <p className="text-slate-700 mb-8 font-semibold">ابدأ رحلتك معنا اليوم</p>
+            <h1 className="text-4xl font-black text-slate-900 mb-2 tracking-tight dark:text-slate-50">إنشاء حساب جديد</h1>
+            <p className="text-slate-700 mb-8 font-semibold dark:text-slate-200">ابدأ رحلتك معنا اليوم</p>
 
             <div className="auth-switch" role="tablist" aria-label="التنقل بين الدخول والتسجيل">
                 <Link href="/login" className="auth-switch-link" role="tab" aria-selected={false}>تسجيل دخول</Link>
@@ -35,7 +35,7 @@ export default function RegisterPage() {
 
             <form onSubmit={handleSubmit} className="w-full space-y-5" noValidate>
                 <div className="space-y-1.5">
-                    <label htmlFor="username" className="text-sm font-bold text-slate-800 mr-2">اسم المستخدم</label>
+                    <label htmlFor="username" className="text-sm font-bold text-slate-800 mr-2 dark:text-slate-100">اسم المستخدم</label>
                     <input
                         id="username"
                         name="username"
@@ -50,7 +50,7 @@ export default function RegisterPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                    <label htmlFor="businessName" className="text-sm font-bold text-slate-800 mr-2">اسم المتجر / الشركة</label>
+                    <label htmlFor="businessName" className="text-sm font-bold text-slate-800 mr-2 dark:text-slate-100">اسم المتجر / الشركة</label>
                     <input
                         id="businessName"
                         name="businessName"
@@ -65,7 +65,7 @@ export default function RegisterPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                    <label htmlFor="email" className="text-sm font-bold text-slate-800 mr-2">البريد الإلكتروني</label>
+                    <label htmlFor="email" className="text-sm font-bold text-slate-800 mr-2 dark:text-slate-100">البريد الإلكتروني</label>
                     <input
                         id="email"
                         name="email"
@@ -80,7 +80,7 @@ export default function RegisterPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                    <label htmlFor="mobile" className="text-sm font-bold text-slate-800 mr-2">رقم الجوال</label>
+                    <label htmlFor="mobile" className="text-sm font-bold text-slate-800 mr-2 dark:text-slate-100">رقم الجوال</label>
                     <input
                         id="mobile"
                         name="mobile"
@@ -96,7 +96,7 @@ export default function RegisterPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                    <label htmlFor="password" className="text-sm font-bold text-slate-800 mr-2">كلمة المرور</label>
+                    <label htmlFor="password" className="text-sm font-bold text-slate-800 mr-2 dark:text-slate-100">كلمة المرور</label>
                     <input
                         id="password"
                         name="password"
@@ -120,7 +120,7 @@ export default function RegisterPage() {
                 </button>
             </form>
 
-            <p className="mt-6 text-xs text-slate-600 text-center font-semibold leading-relaxed">
+            <p className="mt-6 text-xs text-slate-600 text-center font-semibold leading-relaxed dark:text-slate-300">
                 بإنشائك للحساب، فأنت توافق على <Link href="/terms" className="text-coral underline">الشروط والأحكام</Link> و <Link href="/privacy" className="text-coral underline">سياسة الخصوصية</Link>
             </p>
         </section>

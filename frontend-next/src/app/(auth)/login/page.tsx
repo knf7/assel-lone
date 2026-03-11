@@ -28,8 +28,8 @@ export default function LoginPage() {
     return (
         <section className="glass-card auth-card">
             {/* Logo placeholder if needed */}
-            <h1 className="text-4xl font-black text-slate-900 mb-2 tracking-tight">مرحباً بعودتك</h1>
-            <p className="text-slate-700 mb-8 font-semibold">سجل دخولك للمتابعة</p>
+            <h1 className="text-4xl font-black text-slate-900 mb-2 tracking-tight dark:text-slate-50">مرحباً بعودتك</h1>
+            <p className="text-slate-700 mb-8 font-semibold dark:text-slate-200">سجل دخولك للمتابعة</p>
 
             <div className="auth-switch" role="tablist" aria-label="التنقل بين الدخول والتسجيل">
                 <button type="button" role="tab" aria-selected={true} className="auth-switch-active">تسجيل دخول</button>
@@ -38,7 +38,7 @@ export default function LoginPage() {
 
             <form onSubmit={handleSubmit} className="w-full space-y-6" noValidate>
                 <div className="space-y-2">
-                    <label htmlFor="identifier" className="text-sm font-bold text-slate-800 mr-2">البريد الإلكتروني أو اسم المستخدم</label>
+                    <label htmlFor="identifier" className="text-sm font-bold text-slate-800 mr-2 dark:text-slate-100">البريد الإلكتروني أو اسم المستخدم</label>
                     <input
                         id="identifier"
                         name="identifier"
@@ -53,7 +53,7 @@ export default function LoginPage() {
                 </div>
                 <div className="space-y-2">
                     <div className="flex items-center justify-between px-2">
-                        <label htmlFor="password" className="text-sm font-bold text-slate-800">كلمة المرور</label>
+                        <label htmlFor="password" className="text-sm font-bold text-slate-800 dark:text-slate-100">كلمة المرور</label>
                     </div>
                     <input
                         id="password"
@@ -69,8 +69,8 @@ export default function LoginPage() {
                 </div>
 
                 <div className="flex items-center justify-between w-full px-2 text-sm">
-                    <Link href="/forgot-password" title="استعادة كلمة المرور" className="font-bold text-slate-800 hover:text-coral transition-colors underline decoration-dotted">نسيت كلمة المرور؟</Link>
-                    <label className="flex items-center gap-2 cursor-pointer text-slate-700 font-semibold">
+                    <Link href="/forgot-password" title="استعادة كلمة المرور" className="font-bold text-slate-800 hover:text-coral transition-colors underline decoration-dotted dark:text-slate-200">نسيت كلمة المرور؟</Link>
+                    <label className="flex items-center gap-2 cursor-pointer text-slate-700 font-semibold dark:text-slate-200">
                         تذكرني
                         <input
                             type="checkbox"
