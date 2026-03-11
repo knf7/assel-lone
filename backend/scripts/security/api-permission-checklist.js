@@ -44,25 +44,45 @@ async function run() {
     const baseUrl = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 3100}`;
     const JWT_SECRET = process.env.JWT_SECRET;
     const ADMIN_SECRET = process.env.ADMIN_SECRET;
+    const TEST_MERCHANT_ID = process.env.TEST_MERCHANT_ID;
 
     if (!JWT_SECRET) {
         throw new Error('JWT_SECRET missing in env');
     }
 
-    const db = new Client({
-        host: process.env.DB_HOST || 'localhost',
-        port: Number(process.env.DB_PORT || 5432),
-        user: process.env.DB_USER || 'postgres',
-        password: process.env.DB_PASSWORD,
-        database: process.env.DB_NAME || 'loan_management',
-    });
-    await db.connect();
-    const merchantRes = await db.query('SELECT id FROM merchants ORDER BY created_at ASC LIMIT 1');
-    await db.end();
-    if (!merchantRes.rows.length) {
-        throw new Error('No merchant found for permission tests');
+    let merchantId = TEST_MERCHANT_ID;
+    if (!merchantId && ADMIN_SECRET) {
+        try {
+            const adminToken = jwt.sign({ role: 'admin' }, ADMIN_SECRET, { expiresIn: '5m' });
+            const res = await fetch(`${baseUrl}/api/system-manage-x7/merchants`, {
+                headers: { Authorization: `Bearer ${adminToken}` },
+            });
+            if (res.ok) {
+                const merchants = await res.json();
+                if (Array.isArray(merchants) && merchants.length) {
+                    merchantId = merchants[0].id;
+                }
+            }
+        } catch (err) {
+            console.warn('Failed to fetch merchant via admin API:', err.message);
+        }
     }
-    const merchantId = merchantRes.rows[0].id;
+    if (!merchantId) {
+        const db = new Client({
+            host: process.env.DB_HOST || 'localhost',
+            port: Number(process.env.DB_PORT || 5432),
+            user: process.env.DB_USER || 'postgres',
+            password: process.env.DB_PASSWORD,
+            database: process.env.DB_NAME || 'loan_management',
+        });
+        await db.connect();
+        const merchantRes = await db.query('SELECT id FROM merchants ORDER BY created_at ASC LIMIT 1');
+        await db.end();
+        if (!merchantRes.rows.length) {
+            throw new Error('No merchant found for permission tests');
+        }
+        merchantId = merchantRes.rows[0].id;
+    }
 
     const merchantToken = jwt.sign(
         { merchantId, userId: merchantId, role: 'merchant', email: 'merchant@test.local' },
@@ -165,4 +185,3 @@ run().catch((err) => {
     console.error('Permission checklist failed:', err);
     process.exit(1);
 });
-
