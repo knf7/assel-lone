@@ -116,7 +116,11 @@ const allowedOrigins = new Set([
     'http://localhost:3003',
 ].filter(Boolean));
 
-const allowVercelPreviews = process.env.CORS_ALLOW_VERCEL === 'true';
+// Allow Vercel preview/production domains by default to avoid CORS blocks.
+// Set CORS_ALLOW_VERCEL=false to enforce strict allowlist only.
+const allowVercelPreviews = process.env.CORS_ALLOW_VERCEL
+    ? process.env.CORS_ALLOW_VERCEL === 'true'
+    : true;
 const isAllowedOrigin = (origin) => {
     if (!origin) return true;
     if (allowedOrigins.has(origin)) return true;
