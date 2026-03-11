@@ -152,19 +152,35 @@ app.use(cors({
     credentials: true
 }));
 
+const toNumber = (value, fallback) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+};
+
 // Rate limiting — normal API routes
+const apiRateLimitWindowMs = toNumber(process.env.API_RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000);
+const apiRateLimitMax = toNumber(process.env.API_RATE_LIMIT_MAX, 500);
 const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 500,
+    windowMs: apiRateLimitWindowMs,
+    max: apiRateLimitMax,
+    standardHeaders: true,
+    legacyHeaders: false,
     skip: (req) => req.path.includes('/upload') // no limit for bulk uploads
 });
 app.use('/api/', limiter);
 
-// Rate limiting — for login endpoint (very high limit for performance testing)
+// Rate limiting — for login endpoint
+const loginRateLimitWindowMs = toNumber(process.env.LOGIN_RATE_LIMIT_WINDOW_MS, 15 * 60 * 1000);
+const loginRateLimitMax = toNumber(
+    process.env.LOGIN_RATE_LIMIT_MAX,
+    isProd ? 30 : 1000000
+);
 const loginLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 1000000, // Very high limit for performance testing
-    message: 'Too many login attempts from this IP, please try again after 15 minutes'
+    windowMs: loginRateLimitWindowMs,
+    max: loginRateLimitMax,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: 'Too many login attempts from this IP, please try again later'
 });
 app.use('/api/auth/login', loginLimiter);
 
