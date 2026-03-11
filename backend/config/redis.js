@@ -20,6 +20,9 @@ if (useRedis) {
 } else {
     // Lightweight in-memory fallback for serverless (no persistence, per-instance only)
     console.warn('⚠️ REDIS_HOST not set; using in-memory store (non-persistent)');
+    if ((process.env.NODE_ENV || 'development') === 'production' && process.env.REQUIRE_REDIS === 'true') {
+        throw new Error('REDIS is required in production. Set REDIS_URL/REDIS_HOST or disable REQUIRE_REDIS.');
+    }
     const store = new Map();
     const setex = (key, ttlSeconds, value) => {
         store.set(key, value);

@@ -83,13 +83,19 @@ run_scalar() {
 }
 
 run_restore() {
-  local PG_RESTORE_BIN=""
-  if command -v pg_restore >/dev/null 2>&1; then
-    PG_RESTORE_BIN="$(command -v pg_restore)"
-  elif [[ -x "/opt/homebrew/opt/postgresql@16/bin/pg_restore" ]]; then
-    PG_RESTORE_BIN="/opt/homebrew/opt/postgresql@16/bin/pg_restore"
-  elif [[ -x "/usr/local/opt/postgresql@16/bin/pg_restore" ]]; then
-    PG_RESTORE_BIN="/usr/local/opt/postgresql@16/bin/pg_restore"
+  local PG_RESTORE_BIN="${PG_RESTORE_BIN:-}"
+  if [[ -z "$PG_RESTORE_BIN" ]]; then
+    if command -v pg_restore >/dev/null 2>&1; then
+      PG_RESTORE_BIN="$(command -v pg_restore)"
+    elif [[ -x "/opt/homebrew/opt/postgresql@17/bin/pg_restore" ]]; then
+      PG_RESTORE_BIN="/opt/homebrew/opt/postgresql@17/bin/pg_restore"
+    elif [[ -x "/usr/local/opt/postgresql@17/bin/pg_restore" ]]; then
+      PG_RESTORE_BIN="/usr/local/opt/postgresql@17/bin/pg_restore"
+    elif [[ -x "/opt/homebrew/opt/postgresql@16/bin/pg_restore" ]]; then
+      PG_RESTORE_BIN="/opt/homebrew/opt/postgresql@16/bin/pg_restore"
+    elif [[ -x "/usr/local/opt/postgresql@16/bin/pg_restore" ]]; then
+      PG_RESTORE_BIN="/usr/local/opt/postgresql@16/bin/pg_restore"
+    fi
   fi
 
   if [[ -n "$PG_RESTORE_BIN" ]]; then

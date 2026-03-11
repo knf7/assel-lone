@@ -60,6 +60,19 @@ const db = require('./config/database');
 const { createObservability } = require('./middleware/observability');
 
 validateEnv();
+const isProd = (process.env.NODE_ENV || 'development') === 'production';
+const warnIfMissing = (key, message) => {
+    if (!process.env[key]) {
+        console.warn(`[WARN] ${message}`);
+    }
+};
+if (isProd) {
+    warnIfMissing('FRONTEND_URL', 'FRONTEND_URL is not set. CORS may block browser requests.');
+    if (!process.env.REDIS_HOST && !process.env.REDIS_URL) {
+        console.warn('[WARN] Redis is not configured. OTP/queues will be non-persistent.');
+    }
+    warnIfMissing('SENTRY_DSN', 'SENTRY_DSN is not set. Error monitoring is disabled in production.');
+}
 
 // Initialize Bull Board for Queue Monitoring (if available)
 let serverAdapter;

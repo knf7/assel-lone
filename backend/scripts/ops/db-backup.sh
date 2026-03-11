@@ -26,18 +26,24 @@ CHECKSUM_FILE="${BACKUP_FILE}.sha256"
 mkdir -p "$BACKUP_DIR"
 
 run_pg_dump_local() {
-  local PG_DUMP_BIN=""
-  if command -v pg_dump >/dev/null 2>&1; then
-    PG_DUMP_BIN="$(command -v pg_dump)"
-  elif [[ -x "/opt/homebrew/opt/postgresql@16/bin/pg_dump" ]]; then
-    PG_DUMP_BIN="/opt/homebrew/opt/postgresql@16/bin/pg_dump"
-  elif [[ -x "/usr/local/opt/postgresql@16/bin/pg_dump" ]]; then
-    PG_DUMP_BIN="/usr/local/opt/postgresql@16/bin/pg_dump"
+  local PG_DUMP_BIN="${PG_DUMP_BIN:-}"
+  if [[ -z "$PG_DUMP_BIN" ]]; then
+    if command -v pg_dump >/dev/null 2>&1; then
+      PG_DUMP_BIN="$(command -v pg_dump)"
+    elif [[ -x "/opt/homebrew/opt/postgresql@17/bin/pg_dump" ]]; then
+      PG_DUMP_BIN="/opt/homebrew/opt/postgresql@17/bin/pg_dump"
+    elif [[ -x "/usr/local/opt/postgresql@17/bin/pg_dump" ]]; then
+      PG_DUMP_BIN="/usr/local/opt/postgresql@17/bin/pg_dump"
+    elif [[ -x "/opt/homebrew/opt/postgresql@16/bin/pg_dump" ]]; then
+      PG_DUMP_BIN="/opt/homebrew/opt/postgresql@16/bin/pg_dump"
+    elif [[ -x "/usr/local/opt/postgresql@16/bin/pg_dump" ]]; then
+      PG_DUMP_BIN="/usr/local/opt/postgresql@16/bin/pg_dump"
+    fi
   fi
   if [[ -z "$PG_DUMP_BIN" ]]; then
     return 1
   fi
-  echo "[$(date)] Using local pg_dump..."
+  echo "[$(date)] Using local pg_dump (${PG_DUMP_BIN})..."
   PGPASSWORD="$DB_PASSWORD" "$PG_DUMP_BIN" \
     -h "$DB_HOST" \
     -p "$DB_PORT" \
