@@ -98,15 +98,22 @@ run_restore() {
     fi
   fi
 
+  local RESTORE_OPTS=(--no-owner --no-privileges --no-publications --no-subscriptions --section=pre-data --section=data)
   if [[ -n "$PG_RESTORE_BIN" ]]; then
-    PGPASSWORD="$DB_PASSWORD" "$PG_RESTORE_BIN" -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$TMP_DB" -v "$SOURCE_BACKUP" >/dev/null
+    PGPASSWORD="$DB_PASSWORD" "$PG_RESTORE_BIN" -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$TMP_DB" \
+      "${RESTORE_OPTS[@]}" -v "$SOURCE_BACKUP" >/dev/null
     return
   fi
-  cat "$SOURCE_BACKUP" | docker exec -i "$DB_CONTAINER" pg_restore -U "$DB_USER" -d "$TMP_DB" -v >/dev/null
+  cat "$SOURCE_BACKUP" | docker exec -i "$DB_CONTAINER" pg_restore -U "$DB_USER" -d "$TMP_DB" \
+    "${RESTORE_OPTS[@]}" -v >/dev/null
 }
 
 echo "[$(date)] Restore check started using backup: $SOURCE_BACKUP"
 run_psql postgres "CREATE DATABASE $TMP_DB;"
+# Pre-create extensions schema + core extensions used by public tables
+run_psql "$TMP_DB" "CREATE SCHEMA IF NOT EXISTS extensions;"
+run_psql "$TMP_DB" "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\" WITH SCHEMA extensions;"
+run_psql "$TMP_DB" "CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;"
 run_restore
 
 TABLES_COUNT="$(run_scalar "$TMP_DB" "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('merchants','customers','loans');" | tr -d '[:space:]')"

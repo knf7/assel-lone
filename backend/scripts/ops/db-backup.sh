@@ -12,6 +12,8 @@ if [[ -f "$BACKEND_DIR/.env" ]]; then
 fi
 
 BACKUP_DIR="${BACKUP_DIR:-$ROOT_DIR/db_backups}"
+BACKUP_EXCLUDE_SCHEMAS="${BACKUP_EXCLUDE_SCHEMAS:-auth,realtime,storage,graphql,graphql_public,pgbouncer,vault,extensions,supabase_migrations}"
+BACKUP_EXCLUDE_EXTENSIONS="${BACKUP_EXCLUDE_EXTENSIONS:-pg_graphql,pg_stat_statements,supabase_vault}"
 RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-7}"
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5432}"
@@ -24,6 +26,32 @@ BACKUP_FILE="$BACKUP_DIR/db_backup_${TIMESTAMP}.dump"
 CHECKSUM_FILE="${BACKUP_FILE}.sha256"
 
 mkdir -p "$BACKUP_DIR"
+
+build_exclude_args() {
+  local schemas_csv="$1"
+  local -a args=()
+  IFS=',' read -r -a schemas <<< "$schemas_csv"
+  for schema in "${schemas[@]}"; do
+    schema="$(echo "$schema" | xargs)"
+    if [[ -n "$schema" ]]; then
+      args+=("--exclude-schema=${schema}")
+    fi
+  done
+  echo "${args[@]}"
+}
+
+build_exclude_extension_args() {
+  local ext_csv="$1"
+  local -a args=()
+  IFS=',' read -r -a exts <<< "$ext_csv"
+  for ext in "${exts[@]}"; do
+    ext="$(echo "$ext" | xargs)"
+    if [[ -n "$ext" ]]; then
+      args+=("--exclude-extension=${ext}")
+    fi
+  done
+  echo "${args[@]}"
+}
 
 run_pg_dump_local() {
   local PG_DUMP_BIN="${PG_DUMP_BIN:-}"
@@ -44,12 +72,20 @@ run_pg_dump_local() {
     return 1
   fi
   echo "[$(date)] Using local pg_dump (${PG_DUMP_BIN})..."
+  local EXCLUDE_ARGS
+  EXCLUDE_ARGS=($(build_exclude_args "$BACKUP_EXCLUDE_SCHEMAS"))
+  local EXCLUDE_EXT_ARGS
+  EXCLUDE_EXT_ARGS=($(build_exclude_extension_args "$BACKUP_EXCLUDE_EXTENSIONS"))
   PGPASSWORD="$DB_PASSWORD" "$PG_DUMP_BIN" \
     -h "$DB_HOST" \
     -p "$DB_PORT" \
     -U "$DB_USER" \
     -d "$DB_NAME" \
     -Fc \
+    --no-owner \
+    --no-privileges \
+    "${EXCLUDE_ARGS[@]}" \
+    "${EXCLUDE_EXT_ARGS[@]}" \
     -f "$BACKUP_FILE"
 }
 
@@ -58,10 +94,19 @@ run_pg_dump_docker() {
     return 1
   fi
   echo "[$(date)] Using docker pg_dump from container $DB_CONTAINER..."
+  local EXCLUDE_ARGS
+  EXCLUDE_ARGS=($(build_exclude_args "$BACKUP_EXCLUDE_SCHEMAS"))
+  local EXCLUDE_EXT_ARGS
+  EXCLUDE_EXT_ARGS=($(build_exclude_extension_args "$BACKUP_EXCLUDE_EXTENSIONS"))
   docker exec "$DB_CONTAINER" pg_dump \
     -U "$DB_USER" \
     -d "$DB_NAME" \
-    -Fc > "$BACKUP_FILE"
+    -Fc \
+    --no-owner \
+    --no-privileges \
+    "${EXCLUDE_ARGS[@]}" \
+    "${EXCLUDE_EXT_ARGS[@]}" \
+    > "$BACKUP_FILE"
 }
 
 echo "[$(date)] Starting backup for database: $DB_NAME"
