@@ -266,80 +266,12 @@
     margin-right: 4px;
 }
 
-/* ── Stats Toolbar ───────────────────────────── */
-.stats-toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
-    margin: 18px 0 16px;
-}
-
-.stats-toolbar-title {
-    font-size: 12px;
-    font-weight: 700;
-    color: var(--text-muted);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-}
-
-.stats-toggle-group {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-.stats-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    border-radius: 999px;
-    border: 1px solid var(--glass-border);
-    background: var(--glass-bg);
-    color: var(--text-muted);
-    font-size: 12px;
-    font-weight: 700;
-    transition: all 0.2s ease;
-}
-
-.stats-toggle:hover {
-    border-color: rgba(96, 165, 250, 0.35);
-    color: var(--text-primary);
-}
-
-.stats-toggle.active {
-    background: rgba(96, 165, 250, 0.15);
-    border-color: rgba(96, 165, 250, 0.45);
-    color: var(--accent);
-}
-
-.stats-toggle-muted {
-    background: transparent;
-}
-
 /* ── Stats Grid ──────────────────────────────── */
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(min(100%, 230px), 1fr));
     gap: clamp(12px, 2vw, 20px);
     margin-bottom: 32px;
-}
-
-.stats-empty {
-    grid-column: 1 / -1;
-    min-height: 120px;
-    border-radius: 1rem;
-    border: 1px dashed var(--glass-border);
-    background: rgba(148, 163, 184, 0.08);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    color: var(--text-muted);
-    font-size: 13px;
 }
 
 .stat-card {
