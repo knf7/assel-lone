@@ -58,6 +58,10 @@ run_pg_dump_local() {
   if [[ -z "$PG_DUMP_BIN" ]]; then
     if command -v pg_dump >/dev/null 2>&1; then
       PG_DUMP_BIN="$(command -v pg_dump)"
+    elif [[ -x "/usr/lib/postgresql/17/bin/pg_dump" ]]; then
+      PG_DUMP_BIN="/usr/lib/postgresql/17/bin/pg_dump"
+    elif [[ -x "/usr/lib/postgresql/16/bin/pg_dump" ]]; then
+      PG_DUMP_BIN="/usr/lib/postgresql/16/bin/pg_dump"
     elif [[ -x "/opt/homebrew/opt/postgresql@17/bin/pg_dump" ]]; then
       PG_DUMP_BIN="/opt/homebrew/opt/postgresql@17/bin/pg_dump"
     elif [[ -x "/usr/local/opt/postgresql@17/bin/pg_dump" ]]; then
@@ -66,6 +70,8 @@ run_pg_dump_local() {
       PG_DUMP_BIN="/opt/homebrew/opt/postgresql@16/bin/pg_dump"
     elif [[ -x "/usr/local/opt/postgresql@16/bin/pg_dump" ]]; then
       PG_DUMP_BIN="/usr/local/opt/postgresql@16/bin/pg_dump"
+    elif [[ -x "/usr/lib/postgresql/15/bin/pg_dump" ]]; then
+      PG_DUMP_BIN="/usr/lib/postgresql/15/bin/pg_dump"
     fi
   fi
   if [[ -z "$PG_DUMP_BIN" ]]; then

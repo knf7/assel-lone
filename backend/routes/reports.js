@@ -20,10 +20,13 @@ router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res)
         const id = req.merchantId;
         const isMockedDb = Boolean(db.query && db.query._isMockFunction);
         const cacheKey = `reports:dashboard:${id}`;
-        const cached = await getCache(cacheKey);
-        if (cached) {
-            res.set('Cache-Control', 'private, max-age=30');
-            return res.json(cached);
+        const useCache = !isMockedDb;
+        if (useCache) {
+            const cached = await getCache(cacheKey);
+            if (cached) {
+                res.set('Cache-Control', 'private, max-age=30');
+                return res.json(cached);
+            }
         }
 
         const [
@@ -204,8 +207,10 @@ router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res)
         };
 
         const ttlSeconds = Number(process.env.REPORTS_CACHE_TTL || 30);
-        await setCache(cacheKey, payload, Number.isFinite(ttlSeconds) ? ttlSeconds : 30);
-        res.set('Cache-Control', 'private, max-age=30');
+        if (useCache) {
+            await setCache(cacheKey, payload, Number.isFinite(ttlSeconds) ? ttlSeconds : 30);
+            res.set('Cache-Control', 'private, max-age=30');
+        }
         res.json(payload);
     } catch (err) {
         console.error('Dashboard error:', err);
@@ -219,12 +224,16 @@ router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res)
 router.get('/analytics', checkPermission('can_view_analytics'), async (req, res) => {
     try {
         const id = req.merchantId;
+        const isMockedDb = Boolean(db.query && db.query._isMockFunction);
         const interval = req.query.interval || 'month';
         const cacheKey = `reports:analytics:${id}:${interval}`;
-        const cached = await getCache(cacheKey);
-        if (cached) {
-            res.set('Cache-Control', 'private, max-age=60');
-            return res.json(cached);
+        const useCache = !isMockedDb;
+        if (useCache) {
+            const cached = await getCache(cacheKey);
+            if (cached) {
+                res.set('Cache-Control', 'private, max-age=60');
+                return res.json(cached);
+            }
         }
 
         let groupInterval = 'month';
@@ -398,8 +407,10 @@ router.get('/analytics', checkPermission('can_view_analytics'), async (req, res)
         };
 
         const ttlSeconds = Number(process.env.REPORTS_ANALYTICS_CACHE_TTL || 60);
-        await setCache(cacheKey, payload, Number.isFinite(ttlSeconds) ? ttlSeconds : 60);
-        res.set('Cache-Control', 'private, max-age=60');
+        if (useCache) {
+            await setCache(cacheKey, payload, Number.isFinite(ttlSeconds) ? ttlSeconds : 60);
+            res.set('Cache-Control', 'private, max-age=60');
+        }
         res.json(payload);
     } catch (err) {
         console.error('Analytics error:', err);
