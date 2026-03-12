@@ -20,6 +20,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.REPO_TOKEN != '' && secrets.REPO_TOKEN || github.token }}
 
       - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
@@ -58,6 +59,8 @@ jobs:
         working-directory: ./backend
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.REPO_TOKEN != '' && secrets.REPO_TOKEN || github.token }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -110,6 +113,8 @@ jobs:
         working-directory: ./frontend-next
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.REPO_TOKEN != '' && secrets.REPO_TOKEN || github.token }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -131,6 +136,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.REPO_TOKEN != '' && secrets.REPO_TOKEN || github.token }}
 
       - name: Check GHCR_PAT availability
         id: ghcr
