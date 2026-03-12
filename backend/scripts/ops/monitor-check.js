@@ -18,14 +18,17 @@ function loadEnv() {
 
 async function run() {
     loadEnv();
-    const baseUrl = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 3100}`;
+    const rawBaseUrl = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 3100}`;
+    const apiBase = rawBaseUrl.replace(/\/+$/, '').endsWith('/api')
+        ? rawBaseUrl.replace(/\/+$/, '')
+        : `${rawBaseUrl.replace(/\/+$/, '')}/api`;
     const metricsKey = process.env.ADMIN_SECRET || '';
     const max5xxRate = Number(process.env.MONITOR_MAX_5XX_RATE || 5);
     const maxP95Ms = Number(process.env.MONITOR_MAX_P95_MS || 1200);
     const minRequestsForAlarm = Number(process.env.ALERT_MIN_REQUESTS || 20);
     let failed = false;
 
-    const healthRes = await fetch(`${baseUrl}/health`);
+    const healthRes = await fetch(`${apiBase}/health`);
     const health = await healthRes.json().catch(() => ({}));
     console.log('Health:', healthRes.status, health);
     if (healthRes.status >= 500 || health.status === 'degraded') {
@@ -36,7 +39,7 @@ async function run() {
     if (!metricsKey) {
         console.warn('ADMIN_SECRET is not set. Skipping runtime metrics check.');
     } else {
-        const rtRes = await fetch(`${baseUrl}/api/ops/runtime-metrics`, {
+        const rtRes = await fetch(`${apiBase}/ops/runtime-metrics`, {
             headers: { 'x-metrics-key': metricsKey },
         });
         const runtime = await rtRes.json().catch(() => ({}));
