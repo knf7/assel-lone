@@ -323,15 +323,6 @@ export default function DashboardPage() {
         }
     };
 
-    if (loading) {
-        return (
-            <div className="db-loading">
-                <div className="db-spinner" />
-                <p>جاري تحميل البيانات...</p>
-            </div>
-        );
-    }
-
     const pieData = useMemo(() => statusDist.filter((d: any) => d.count > 0), [statusDist]);
     const hasCharts = useMemo(() => debtTrend.length > 0 || pieData.length > 0, [debtTrend, pieData]);
     const ai = useMemo(() => aiData?.summary || {}, [aiData]);
@@ -460,6 +451,15 @@ export default function DashboardPage() {
         () => statCards.filter((card) => visibleCategories.includes(card.category)),
         [statCards, visibleCategories]
     );
+
+    if (loading) {
+        return (
+            <div className="db-loading">
+                <div className="db-spinner" />
+                <p>جاري تحميل البيانات...</p>
+            </div>
+        );
+    }
 
     return (
         <>
