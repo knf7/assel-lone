@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
     AreaChart, Area, PieChart, Pie, Cell,
@@ -28,8 +28,29 @@ const STATUS_MAP: Record<string, { label: string; color: string }> = {
     Cancelled: { label: 'ملغي', color: 'var(--text-muted)' },
 };
 
+const CHART_INTERVALS = [
+    { id: 'week', label: 'أسبوعي' },
+    { id: 'month', label: 'شهري' },
+    { id: '6months', label: '6 شهور' },
+    { id: 'year', label: 'سنوي' },
+];
+
+const QUICK_ACTIONS = [
+    { Icon: Plus, label: 'إضافة قرض جديد', sub: 'تسجيل عميل وقرض', path: '/dashboard/loans/new', color: 'var(--coral)' },
+    { Icon: Users, label: 'إدارة العملاء', sub: 'عرض وتعديل البيانات', path: '/dashboard/customers', color: 'var(--info)' },
+    { Icon: Upload, label: 'رفع ملف Excel', sub: 'استيراد بيانات دفعي', path: '/dashboard/loans/import', color: 'var(--success)' },
+    { Icon: BarChart3, label: 'التحليلات', sub: 'تقارير وإحصائيات', path: '/dashboard/analytics', color: 'var(--warning)' },
+];
+
+const INSIGHT_ICONS: Record<string, React.ReactNode> = {
+    danger: <AlertCircle size={18} color="var(--danger)" />,
+    warning: <AlertTriangle size={18} color="var(--warning)" />,
+    success: <CheckCircle2 size={18} color="var(--success)" />,
+    info: <Info size={18} color="var(--info)" />,
+};
+
 // ─── Stat Card ─────────────────────────────────
-function StatCard({ label, value, sub, Icon, color, trend, loading, onClick }: any) {
+const StatCard = React.memo(function StatCard({ label, value, sub, Icon, color, trend, loading, onClick }: any) {
     return (
         <div className={`stat-card fade-up ${onClick ? 'clickable' : ''}`} onClick={onClick}>
             <div className="stat-icon" style={{ background: `color-mix(in srgb, ${color} 14%, transparent)`, color }}>
@@ -50,10 +71,10 @@ function StatCard({ label, value, sub, Icon, color, trend, loading, onClick }: a
             )}
         </div>
     );
-}
+});
 
 // ─── Toast ────────────────────────────────────
-function ToastContainer({ toasts }: { toasts: any[] }) {
+const ToastContainer = React.memo(function ToastContainer({ toasts }: { toasts: any[] }) {
     return (
         <div className="toast-container">
             {toasts.map((t: any) => (
@@ -72,12 +93,12 @@ function ToastContainer({ toasts }: { toasts: any[] }) {
             ))}
         </div>
     );
-}
+});
 
 // ─── Overdue Marquee ──────────────────────────
-function OverdueMarquee({ clients }: { clients: any[] }) {
+const OverdueMarquee = React.memo(function OverdueMarquee({ clients }: { clients: any[] }) {
     if (!clients || clients.length === 0) return null;
-    const full = [...clients, ...clients];
+    const full = useMemo(() => [...clients, ...clients], [clients]);
     return (
         <div className="overdue-marquee-wrap fade-up">
             <div className="marquee-label-pill">
@@ -97,21 +118,15 @@ function OverdueMarquee({ clients }: { clients: any[] }) {
             </div>
         </div>
     );
-}
+});
 
 // ─── AI Insight Card ──────────────────────────
-function InsightCard({ ins }: { ins: any }) {
-    const icons: Record<string, React.ReactNode> = {
-        danger: <AlertCircle size={18} color="var(--danger)" />,
-        warning: <AlertTriangle size={18} color="var(--warning)" />,
-        success: <CheckCircle2 size={18} color="var(--success)" />,
-        info: <Info size={18} color="var(--info)" />,
-    };
+const InsightCard = React.memo(function InsightCard({ ins }: { ins: any }) {
     return (
         <div className={`insight-card insight-${ins.type}`}>
             <div className="insight-header">
                 <div className={`insight-icon-wrap insight-icon-${ins.type}`}>
-                    {icons[ins.type]}
+                    {INSIGHT_ICONS[ins.type]}
                 </div>
                 <div className="insight-category">{ins.category}</div>
             </div>
@@ -120,10 +135,10 @@ function InsightCard({ ins }: { ins: any }) {
             {ins.action && <div className="insight-action">{ins.action}</div>}
         </div>
     );
-}
+});
 
 // ─── Risk Meter ───────────────────────────────
-function RiskMeter({ high, med, low }: { high: number; med: number; low: number }) {
+const RiskMeter = React.memo(function RiskMeter({ high, med, low }: { high: number; med: number; low: number }) {
     const total = (high + med + low) || 1;
     return (
         <div className="risk-meter">
@@ -139,10 +154,10 @@ function RiskMeter({ high, med, low }: { high: number; med: number; low: number 
             </div>
         </div>
     );
-}
+});
 
 // ─── Free Trial Banner ────────────────────────
-function FreeTrialBanner({ expiryDate }: { expiryDate: string }) {
+const FreeTrialBanner = React.memo(function FreeTrialBanner({ expiryDate }: { expiryDate: string }) {
     const [timeLeft, setTimeLeft] = useState('');
 
     useEffect(() => {
@@ -173,7 +188,7 @@ function FreeTrialBanner({ expiryDate }: { expiryDate: string }) {
             </div>
         </div>
     );
-}
+});
 
 // ─── Main Dashboard ────────────────────────────
 export default function DashboardPage() {
@@ -296,13 +311,16 @@ export default function DashboardPage() {
         );
     }
 
-    const pieData = statusDist.filter((d: any) => d.count > 0);
-    const hasCharts = debtTrend.length > 0 || pieData.length > 0;
-    const ai = aiData?.summary || {};
-    const insights = aiData?.insights || [];
-    const overdueClients = aiData?.overdueClients || [];
-    const recommendations = aiData?.recommendations || [];
-    const risk = ai.riskSegmentation || { highRisk: 0, medRisk: 0, lowRisk: 0 };
+    const pieData = useMemo(() => statusDist.filter((d: any) => d.count > 0), [statusDist]);
+    const hasCharts = useMemo(() => debtTrend.length > 0 || pieData.length > 0, [debtTrend, pieData]);
+    const ai = useMemo(() => aiData?.summary || {}, [aiData]);
+    const insights = useMemo(() => aiData?.insights || [], [aiData]);
+    const overdueClients = useMemo(() => aiData?.overdueClients || [], [aiData]);
+    const recommendations = useMemo(() => aiData?.recommendations || [], [aiData]);
+    const risk = useMemo(
+        () => ai.riskSegmentation || { highRisk: 0, medRisk: 0, lowRisk: 0 },
+        [ai]
+    );
 
     return (
         <>
@@ -445,12 +463,7 @@ export default function DashboardPage() {
                             <p className="chart-sub">تتبع مبالغ القروض عبر الزمن</p>
                         </div>
                         <div className="chart-interval-selector" style={{ display: 'flex', gap: '5px', background: 'rgba(26,43,74,0.05)', padding: '4px', borderRadius: '8px' }}>
-                            {[
-                                { id: 'week', label: 'أسبوعي' },
-                                { id: 'month', label: 'شهري' },
-                                { id: '6months', label: '6 شهور' },
-                                { id: 'year', label: 'سنوي' }
-                            ].map(btn => (
+                            {CHART_INTERVALS.map(btn => (
                                 <button
                                     key={btn.id}
                                     className={`btn-interval ${chartInterval === btn.id ? 'active' : ''}`}
@@ -669,12 +682,7 @@ export default function DashboardPage() {
             <div className="quick-actions-section fade-up">
                 <h3 className="section-title">إجراءات سريعة</h3>
                 <div className="quick-actions-grid">
-                    {[
-                        { Icon: Plus, label: 'إضافة قرض جديد', sub: 'تسجيل عميل وقرض', path: '/dashboard/loans/new', color: 'var(--coral)' },
-                        { Icon: Users, label: 'إدارة العملاء', sub: 'عرض وتعديل البيانات', path: '/dashboard/customers', color: 'var(--info)' },
-                        { Icon: Upload, label: 'رفع ملف Excel', sub: 'استيراد بيانات دفعي', path: '/dashboard/loans/import', color: 'var(--success)' },
-                        { Icon: BarChart3, label: 'التحليلات', sub: 'تقارير وإحصائيات', path: '/dashboard/analytics', color: 'var(--warning)' },
-                    ].map((a, i) => (
+                    {QUICK_ACTIONS.map((a, i) => (
                         <button key={i} className="quick-action-card" onClick={() => router.push(a.path)}>
                             <div className="qa-icon" style={{ background: `color-mix(in srgb, ${a.color} 14%, transparent)`, color: a.color }}>
                                 <a.Icon size={22} color={a.color} />

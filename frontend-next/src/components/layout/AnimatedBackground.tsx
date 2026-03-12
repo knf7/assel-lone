@@ -2,7 +2,7 @@
 
 import React from 'react';
 
-export default function AnimatedBackground() {
+const AnimatedBackground = React.memo(function AnimatedBackground() {
     return (
         <div className="fixed inset-0 w-full h-full -z-10 bg-slate-900 overflow-hidden pointer-events-none">
             <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900" />
@@ -15,4 +15,6 @@ export default function AnimatedBackground() {
             />
         </div>
     );
-}
+});
+
+export default AnimatedBackground;

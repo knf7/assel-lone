@@ -58,6 +58,22 @@ const GROUP_LABELS: Record<NavItem['group'], string> = {
   system: 'النظام',
 };
 
+const PLAN_LABELS: Record<string, { label: string; color: string }> = {
+  free: { label: 'مجاني', color: '#64748b' },
+  basic: { label: 'أساسي', color: '#3B82F6' },
+  pro: { label: 'احترافي', color: '#8B5CF6' },
+  enterprise: { label: 'أعمال', color: '#60A5FA' },
+};
+
+const readStoredMerchant = (): Merchant => {
+  if (typeof window === 'undefined') return {};
+  try {
+    return JSON.parse(localStorage.getItem('merchant') || '{}');
+  } catch {
+    return {};
+  }
+};
+
 function AseelLogoMark({ compact = false }: { compact?: boolean }) {
   return (
     <svg
@@ -105,22 +121,8 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
 
   const collapsed = false;
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [merchant] = useState<Merchant>(() => {
-    if (typeof window === 'undefined') return {};
-    try {
-      return JSON.parse(localStorage.getItem('merchant') || '{}');
-    } catch {
-      return {};
-    }
-  });
-  const [currentUser] = useState<Merchant>(() => {
-    if (typeof window === 'undefined') return {};
-    try {
-      return JSON.parse(localStorage.getItem('merchant') || '{}');
-    } catch {
-      return {};
-    }
-  });
+  const [currentUser] = useState<Merchant>(readStoredMerchant);
+  const merchant = currentUser;
   const [darkMode, setDarkMode] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     return (localStorage.getItem('theme') || 'light') === 'dark';
@@ -228,18 +230,15 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
     runMonthEndNotice();
   }, [currentUser.role]);
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     localStorage.clear();
     router.push('/login');
-  };
+  }, [router]);
 
-  const planLabel: Record<string, { label: string; color: string }> = {
-    free: { label: 'مجاني', color: '#64748b' },
-    basic: { label: 'أساسي', color: '#3B82F6' },
-    pro: { label: 'احترافي', color: '#8B5CF6' },
-    enterprise: { label: 'أعمال', color: '#60A5FA' },
-  };
-  const plan = planLabel[merchant.subscription_plan?.toLowerCase() || 'free'] || planLabel.free;
+  const plan = useMemo(
+    () => PLAN_LABELS[merchant.subscription_plan?.toLowerCase() || 'free'] || PLAN_LABELS.free,
+    [merchant.subscription_plan]
+  );
 
   return (
     <div className={`ops-shell ${collapsed ? 'collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`}>

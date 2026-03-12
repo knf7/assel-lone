@@ -246,16 +246,17 @@ export default function LandingPage() {
               <ul className="space-y-3 text-slate-600">
                 <li><a href="#features" className="hover:text-blue-600 transition-colors">المميزات</a></li>
                 <li><a href="#pricing" className="hover:text-blue-600 transition-colors">الأسعار</a></li>
-                <li><a href="#" className="hover:text-blue-600 transition-colors">دليل الاستخدام</a></li>
+                <li><a href="/how-it-works" className="hover:text-blue-600 transition-colors">آلية العمل</a></li>
               </ul>
             </div>
 
             <div>
               <h4 className="font-bold text-slate-900 mb-4">قانوني</h4>
               <ul className="space-y-3 text-slate-600">
-                <li><a href="#" className="hover:text-blue-600 transition-colors">شروط الاستخدام</a></li>
-                <li><a href="#" className="hover:text-blue-600 transition-colors">سياسة الخصوصية</a></li>
-                <li><a href="#" className="hover:text-blue-600 transition-colors">اتصل بنا</a></li>
+                <li><a href="/terms" className="hover:text-blue-600 transition-colors">شروط الاستخدام</a></li>
+                <li><a href="/privacy" className="hover:text-blue-600 transition-colors">سياسة الخصوصية</a></li>
+                <li><a href="/usage-policy" className="hover:text-blue-600 transition-colors">سياسة الاستخدام</a></li>
+                <li><a href="/contact" className="hover:text-blue-600 transition-colors">اتصل بنا</a></li>
               </ul>
             </div>
           </div>

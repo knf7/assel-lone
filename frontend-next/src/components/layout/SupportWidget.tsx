@@ -30,7 +30,7 @@ const FAQ_ITEMS = [
     },
 ];
 
-export default function SupportWidget() {
+const SupportWidget = React.memo(function SupportWidget() {
     const [open, setOpen] = useState(false);
     const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
     const popupRef = useRef<HTMLDivElement>(null);
@@ -140,7 +140,7 @@ export default function SupportWidget() {
 
                     <div className="support-privacy">
                         <span aria-hidden="true">🔒</span> محادثاتك آمنة ومحمية بموجب{' '}
-                        <a href="/privacy-policy" style={{ color: 'var(--coral)' }}>سياسة الخصوصية</a>
+                        <a href="/privacy" style={{ color: 'var(--coral)' }}>سياسة الخصوصية</a>
                     </div>
                 </div>
             )}
@@ -158,4 +158,6 @@ export default function SupportWidget() {
             </button>
         </div>
     );
-}
+});
+
+export default SupportWidget;
