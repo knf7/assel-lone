@@ -17,6 +17,12 @@ DB_PORT="${DB_PORT:-5432}"
 DB_USER="${DB_USER:-postgres}"
 DB_PASSWORD="${DB_PASSWORD:-}"
 DB_CONTAINER="${DB_CONTAINER:-loan-management-postgres}"
+RESTORE_DB_HOST="${RESTORE_DB_HOST:-$DB_HOST}"
+RESTORE_DB_PORT="${RESTORE_DB_PORT:-$DB_PORT}"
+RESTORE_DB_USER="${RESTORE_DB_USER:-$DB_USER}"
+RESTORE_DB_PASSWORD="${RESTORE_DB_PASSWORD:-$DB_PASSWORD}"
+RESTORE_DB_NAME="${RESTORE_DB_NAME:-postgres}"
+RESTORE_DB_SSLMODE="${RESTORE_DB_SSLMODE:-${PGSSLMODE:-}}"
 SOURCE_BACKUP="${1:-}"
 TMP_DB="restore_check_$(date +%Y%m%d_%H%M%S)"
 
@@ -31,9 +37,11 @@ fi
 
 cleanup() {
   if command -v psql >/dev/null 2>&1; then
-    PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres \
+    PGPASSWORD="$RESTORE_DB_PASSWORD" PGSSLMODE="$RESTORE_DB_SSLMODE" \
+      psql -h "$RESTORE_DB_HOST" -p "$RESTORE_DB_PORT" -U "$RESTORE_DB_USER" -d "$RESTORE_DB_NAME" \
       -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$TMP_DB';" >/dev/null 2>&1 || true
-    PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d postgres \
+    PGPASSWORD="$RESTORE_DB_PASSWORD" PGSSLMODE="$RESTORE_DB_SSLMODE" \
+      psql -h "$RESTORE_DB_HOST" -p "$RESTORE_DB_PORT" -U "$RESTORE_DB_USER" -d "$RESTORE_DB_NAME" \
       -c "DROP DATABASE IF EXISTS $TMP_DB;" >/dev/null 2>&1 || true
   elif command -v docker >/dev/null 2>&1; then
     docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d postgres \
@@ -57,7 +65,8 @@ run_psql() {
   fi
 
   if [[ -n "$PSQL_BIN" ]]; then
-    PGPASSWORD="$DB_PASSWORD" "$PSQL_BIN" -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$db" -v ON_ERROR_STOP=1 -c "$sql"
+    PGPASSWORD="$RESTORE_DB_PASSWORD" PGSSLMODE="$RESTORE_DB_SSLMODE" \
+      "$PSQL_BIN" -h "$RESTORE_DB_HOST" -p "$RESTORE_DB_PORT" -U "$RESTORE_DB_USER" -d "$db" -v ON_ERROR_STOP=1 -c "$sql"
     return
   fi
   docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d "$db" -v ON_ERROR_STOP=1 -c "$sql"
@@ -76,7 +85,8 @@ run_scalar() {
   fi
 
   if [[ -n "$PSQL_BIN" ]]; then
-    PGPASSWORD="$DB_PASSWORD" "$PSQL_BIN" -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$db" -tA -v ON_ERROR_STOP=1 -c "$sql"
+    PGPASSWORD="$RESTORE_DB_PASSWORD" PGSSLMODE="$RESTORE_DB_SSLMODE" \
+      "$PSQL_BIN" -h "$RESTORE_DB_HOST" -p "$RESTORE_DB_PORT" -U "$RESTORE_DB_USER" -d "$db" -tA -v ON_ERROR_STOP=1 -c "$sql"
     return
   fi
   docker exec "$DB_CONTAINER" psql -U "$DB_USER" -d "$db" -tA -v ON_ERROR_STOP=1 -c "$sql"
@@ -100,7 +110,8 @@ run_restore() {
 
   local RESTORE_OPTS=(--no-owner --no-privileges --no-publications --no-subscriptions --section=pre-data --section=data)
   if [[ -n "$PG_RESTORE_BIN" ]]; then
-    PGPASSWORD="$DB_PASSWORD" "$PG_RESTORE_BIN" -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$TMP_DB" \
+    PGPASSWORD="$RESTORE_DB_PASSWORD" PGSSLMODE="$RESTORE_DB_SSLMODE" \
+      "$PG_RESTORE_BIN" -h "$RESTORE_DB_HOST" -p "$RESTORE_DB_PORT" -U "$RESTORE_DB_USER" -d "$TMP_DB" \
       "${RESTORE_OPTS[@]}" -v "$SOURCE_BACKUP" >/dev/null
     return
   fi
@@ -109,7 +120,7 @@ run_restore() {
 }
 
 echo "[$(date)] Restore check started using backup: $SOURCE_BACKUP"
-run_psql postgres "CREATE DATABASE $TMP_DB;"
+run_psql "$RESTORE_DB_NAME" "CREATE DATABASE $TMP_DB;"
 # Pre-create extensions schema + core extensions used by public tables
 run_psql "$TMP_DB" "CREATE SCHEMA IF NOT EXISTS extensions;"
 run_psql "$TMP_DB" "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\" WITH SCHEMA extensions;"
