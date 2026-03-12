@@ -6,7 +6,7 @@ export const metadata = {
 
 const plans = [
   {
-    name: 'الأساسية',
+    name: 'الأساسة',
     price: '99 ر.س',
     cadence: 'شهرياً',
     description: 'مناسبة للمنشآت الصغيرة وبداية التنظيم.',
@@ -14,7 +14,7 @@ const plans = [
     highlight: false,
   },
   {
-    name: 'الاحترافية',
+    name: 'متوسطه',
     price: '220 ر.س',
     cadence: 'شهرياً',
     description: 'خيار متقدم مع تحليلات أوسع ودعم سريع.',
@@ -22,7 +22,7 @@ const plans = [
     highlight: true,
   },
   {
-    name: 'المؤسسية',
+    name: 'برو',
     price: '350 ر.س',
     cadence: 'شهرياً',
     description: 'أفضل أداء للمنشآت الكبرى مع صلاحيات شاملة.',
