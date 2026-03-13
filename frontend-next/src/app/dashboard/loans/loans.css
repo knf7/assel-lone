@@ -458,11 +458,37 @@
     align-items: center;
     justify-content: center;
     gap: 12px;
-    padding: 16px;
-    border-top: 1px solid var(--border);
-    margin-top: 4px;
-    font-size: 13px;
-    color: var(--text-secondary);
+    padding: 10px 14px;
+    border: 1px solid var(--glass-border);
+    background: var(--glass-bg);
+    border-radius: 999px;
+    margin: 12px auto 0;
+    width: fit-content;
+    box-shadow: var(--shadow-sm);
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.pagination .btn,
+.pagination .btn-ghost {
+    min-height: 34px;
+    padding: 0.35rem 0.9rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+    background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+    color: var(--text-primary);
+    font-weight: 700;
+}
+
+.pagination .btn-ghost:hover:not(:disabled) {
+    border-color: rgba(96, 165, 250, 0.55);
+    color: var(--accent);
+    background: rgba(96, 165, 250, 0.12);
+}
+
+.pagination .btn-ghost:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 /* Modal */
