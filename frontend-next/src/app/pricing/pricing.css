@@ -179,6 +179,23 @@
 /* Plan header */
 .plan-header {}
 
+.plan-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.plan-icon {
+    width: 54px;
+    height: 54px;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    box-shadow: 0 12px 24px rgba(15, 23, 42, 0.18);
+}
+
 .plan-name {
     font-size: 18px;
     font-weight: 800;
@@ -190,6 +207,13 @@
     font-size: 13px;
     color: var(--text-muted);
     font-weight: 500;
+}
+
+.yearly-total {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-top: -8px;
 }
 
 /* Pricing */
@@ -338,6 +362,18 @@
 .pricing-note a {
     color: var(--coral);
     font-weight: 700;
+}
+
+.pricing-links {
+    margin: 10px 0;
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.pricing-links span {
+    color: var(--text-muted);
 }
 
 /* ─── Responsive ─── */

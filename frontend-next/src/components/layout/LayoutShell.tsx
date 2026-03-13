@@ -65,6 +65,18 @@ const PLAN_LABELS: Record<string, { label: string; color: string }> = {
   enterprise: { label: 'أعمال', color: '#60A5FA' },
 };
 
+const scheduleIdle = (callback: () => void) => {
+  if (typeof window === 'undefined') return () => {};
+  const idle = (window as any).requestIdleCallback as ((cb: () => void, opts?: { timeout: number }) => number) | undefined;
+  const cancelIdle = (window as any).cancelIdleCallback as ((id: number) => void) | undefined;
+  if (idle) {
+    const id = idle(callback, { timeout: 2000 });
+    return () => cancelIdle?.(id);
+  }
+  const id = window.setTimeout(callback, 600);
+  return () => window.clearTimeout(id);
+};
+
 const readStoredMerchant = (): Merchant => {
   if (typeof window === 'undefined') return {};
   try {
@@ -201,6 +213,18 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
       router.replace(fallback);
     }
   }, [pathname, hasPageAccess, router, visibleNavItems]);
+
+  useEffect(() => {
+    if (!visibleNavItems.length) return;
+    const routes = visibleNavItems
+      .map((item) => item.path)
+      .filter((path) => path !== pathname)
+      .slice(0, 4);
+    if (routes.length === 0) return;
+    return scheduleIdle(() => {
+      routes.forEach((path) => router.prefetch(path));
+    });
+  }, [router, pathname, visibleNavItems]);
 
   useEffect(() => {
     const runMonthEndNotice = async () => {

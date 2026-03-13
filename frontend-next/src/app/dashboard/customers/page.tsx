@@ -20,7 +20,8 @@ export default function CustomersPage() {
     const [ratingCustomer, setRatingCustomer] = useState<any>(null);
 
     const fetchCustomers = useCallback(async (pageOverride?: number) => {
-        setLoading(true);
+        const shouldShowLoader = customers.length === 0;
+        if (shouldShowLoader) setLoading(true);
         setErrorMsg('');
         try {
             const requestPage = pageOverride ?? page;
@@ -35,7 +36,7 @@ export default function CustomersPage() {
             setErrorMsg('تعذر الاتصال بالخادم. تأكد أن خدمة الـ API تعمل على المنفذ 3100.');
         }
         finally { setLoading(false); }
-    }, [page, search]);
+    }, [page, search, customers.length]);
 
     useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
 

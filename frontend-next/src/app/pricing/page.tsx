@@ -20,6 +20,7 @@ type PlanFeature = { text: string; included: boolean };
 type Plan = {
   id: PlanId;
   name: string;
+  tagline: string;
   price: number;
   yearlyPrice: number;
   icon: ReactElement;
@@ -41,6 +42,7 @@ const plans: Plan[] = [
   {
     id: 'basic',
     name: 'الأساسية',
+    tagline: 'حل عملي للبدايات',
     price: 99,
     yearlyPrice: 79,
     icon: <IconRocket size={32} color="currentColor" />,
@@ -49,19 +51,18 @@ const plans: Plan[] = [
     popular: false,
     features: [
       { text: '50 عميل', included: true },
-      { text: '300 قرض', included: true },
+      { text: '50 قرض', included: true },
       { text: 'لوحة تحكم أساسية', included: true },
-      { text: 'تقارير شهرية', included: true },
-      { text: 'دعم بريد إلكتروني', included: true },
-      { text: 'لا يدعم موظفين إضافيين', included: true },
-      { text: 'تحليلات AI', included: false },
-      { text: 'تصدير Excel', included: false },
-      { text: 'رفع ملفات Excel', included: false },
+      { text: 'تقارير شهرية', included: false },
+      { text: 'موظفون إضافيون', included: false },
+      { text: 'استيراد إكسل', included: false },
+      { text: 'تصدير إكسل', included: false },
     ],
   },
   {
     id: 'pro',
-    name: 'الاحترافية',
+    name: 'متوسطة',
+    tagline: 'أفضل توازن للنمو',
     price: 220,
     yearlyPrice: 176,
     icon: <IconDiamond size={32} color="currentColor" />,
@@ -69,20 +70,19 @@ const plans: Plan[] = [
     gradient: 'linear-gradient(135deg, #60A5FA 0%, #64748B 100%)',
     popular: true,
     features: [
-      { text: '500 عميل', included: true },
-      { text: '5,000 قرض', included: true },
-      { text: 'موظف واحد (1) إضافي', included: true },
-      { text: 'لوحة تحكم متقدمة', included: true },
-      { text: 'تقارير يومية', included: true },
-      { text: 'دعم واتساب + بريد', included: true },
-      { text: 'تحليلات AI', included: true },
-      { text: 'تصدير Excel', included: true },
-      { text: 'رفع ملفات Excel', included: true },
+      { text: '150 عميل', included: true },
+      { text: '200 قرض', included: true },
+      { text: 'موظف واحد', included: true },
+      { text: 'تقارير شهرية', included: true },
+      { text: 'استيراد إكسل', included: true },
+      { text: 'تصدير إكسل', included: false },
+      { text: 'تحليلات مخاطر بالذكاء الاصطناعي', included: false },
     ],
   },
   {
     id: 'enterprise',
-    name: 'المؤسسية',
+    name: 'برو',
+    tagline: 'أقصى قدرات وتحليلات متقدمة',
     price: 350,
     yearlyPrice: 280,
     icon: <IconCrown size={32} color="currentColor" />,
@@ -90,15 +90,13 @@ const plans: Plan[] = [
     gradient: 'linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%)',
     popular: false,
     features: [
-      { text: 'عملاء بلا حدود', included: true },
-      { text: 'قروض بلا حدود', included: true },
-      { text: 'موظفين متعددين', included: true },
-      { text: 'صلاحيات متقدمة للموظفين', included: true },
-      { text: 'لوحة تحكم كاملة', included: true },
-      { text: 'تقارير فورية', included: true },
-      { text: 'دعم أولوية 24/7', included: true },
-      { text: 'تحليلات AI متقدمة', included: true },
-      { text: 'تصدير Excel', included: true },
+      { text: '500 عميل', included: true },
+      { text: '700 قرض', included: true },
+      { text: 'موظفان', included: true },
+      { text: 'تقارير شهرية', included: true },
+      { text: 'تحليلات مخاطر بالذكاء الاصطناعي', included: true },
+      { text: 'استيراد إكسل', included: true },
+      { text: 'تصدير إكسل', included: true },
     ],
   },
 ];
@@ -212,47 +210,52 @@ export default function PricingPage() {
           </div>
         </header>
 
-        <div className="plans-grid">
+        <div className="pricing-cards">
           {plans.map((plan) => (
-            <div key={plan.id} className={`plan-card ${plan.popular ? 'plan-popular' : ''}`}>
-              {plan.popular && <div className="popular-ribbon">الأكثر طلباً</div>}
+            <div key={plan.id} className={`pricing-card ${plan.popular ? 'featured' : ''}`}>
+              {plan.popular && <div className="plan-popular-badge">الأكثر طلباً</div>}
 
-              <div className="plan-icon" style={{ background: plan.gradient }}>
-                {plan.icon}
+              <div className="plan-header">
+                <div className="plan-icon" style={{ background: plan.gradient }}>
+                  {plan.icon}
+                </div>
+                <div>
+                  <h3 className="plan-name">{plan.name}</h3>
+                  <div className="plan-tagline">{plan.tagline}</div>
+                </div>
               </div>
 
-              <h3 className="plan-name">{plan.name}</h3>
-
-              <div className="plan-price">
-                <span className="price-amount">{isYearly ? plan.yearlyPrice : plan.price}</span>
-                <span className="price-currency">﷼</span>
-                <span className="price-period">/ شهرياً</span>
+              <div className="plan-price-row">
+                <span className="plan-amount">{isYearly ? plan.yearlyPrice : plan.price}</span>
+                <span className="plan-currency">﷼</span>
+                <span className="plan-period">/ شهرياً</span>
               </div>
 
               {isYearly && <div className="yearly-total">{plan.yearlyPrice * 12} ﷼ / سنوياً</div>}
 
               <ul className="plan-features">
                 {plan.features.map((feature, index) => (
-                  <li key={index} className={feature.included ? 'included' : 'excluded'}>
-                    <span className="feature-icon">{feature.included ? '' : ''}</span>
+                  <li
+                    key={index}
+                    className={`plan-feature-item ${feature.included ? '' : 'plan-feature-disabled'}`}
+                  >
+                    <span
+                      className={`plan-feature-check ${feature.included ? (plan.popular ? 'check-orange' : 'check-blue') : ''}`}
+                    >
+                      {feature.included ? <IconCheck size={12} /> : <IconX size={12} />}
+                    </span>
                     {feature.text}
                   </li>
                 ))}
               </ul>
 
               <button
-                className="plan-cta"
-                style={{ background: plan.gradient }}
+                className={plan.popular ? 'plan-cta-primary' : 'plan-cta-secondary'}
                 onClick={() => handleSubscribe(plan)}
                 disabled={loading === plan.id}
                 type="button"
               >
-                {loading === plan.id ? (
-                  <span className="cta-loading">
-                    <span className="cta-spinner" />
-                    جاري المعالجة...
-                  </span>
-                ) : 'طلب ترقية'}
+                {loading === plan.id ? 'جاري المعالجة...' : 'طلب ترقية'}
               </button>
             </div>
           ))}
@@ -346,13 +349,18 @@ export default function PricingPage() {
           </div>
         )}
 
-        <div className="pricing-footer">
+        <div className="pricing-note">
           <p>جميع الأسعار بالريال السعودي وتشمل ضريبة القيمة المضافة.</p>
-          <p>
-            هل لديك استفسار؟ تواصل معنا عبر
-            {' '}
-            <a href="mailto:support@aseel.sa">support@aseel.sa</a>
-          </p>
+          <div className="pricing-links">
+            <a href="mailto:aseel.ksa.sa.org@gmail.com">aseel.ksa.sa.org@gmail.com</a>
+            <span>•</span>
+            <a href="tel:0583719925">0583719925</a>
+            <span>•</span>
+            <a href="https://www.linkedin.com/in/khalid-alshammari-37ab95370?utm_source=share&utm_campaign=share_via&utm_content=profile&utm_medium=ios_app" target="_blank" rel="noopener noreferrer">
+              LinkedIn
+            </a>
+          </div>
+          <p>جميع الحقوق محفوظة لأصيل المالية</p>
         </div>
       </div>
     </div>

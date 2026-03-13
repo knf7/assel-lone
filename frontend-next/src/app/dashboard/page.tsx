@@ -7,7 +7,7 @@ import {
     AreaChart, Area, PieChart, Pie, Cell,
     XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
-import api from '@/lib/api';
+import { loansAPI, reportsAPI } from '@/lib/api';
 import {
     DollarSign, Users, Calendar, CheckCircle2, AlertTriangle,
     TrendingUp, TrendingDown, Download, Plus, Rocket,
@@ -251,7 +251,10 @@ export default function DashboardPage() {
 
     const summaryQuery = useQuery({
         queryKey: ['dashboard', 'summary'],
-        queryFn: async () => (await api.get('/reports/dashboard')).data,
+        queryFn: async () => {
+            const res = await reportsAPI.getDashboard({});
+            return (res as any).data ?? res;
+        },
         staleTime: 1000 * 60 * 5,
         gcTime: 1000 * 60 * 30,
         retry: 1,
@@ -261,7 +264,10 @@ export default function DashboardPage() {
 
     const analyticsQuery = useQuery({
         queryKey: ['dashboard', 'analytics', chartInterval],
-        queryFn: async () => (await api.get(`/reports/analytics?interval=${chartInterval}`)).data,
+        queryFn: async () => {
+            const res = await reportsAPI.getAnalytics({ interval: chartInterval });
+            return (res as any).data ?? res;
+        },
         staleTime: 1000 * 60 * 5,
         gcTime: 1000 * 60 * 30,
         retry: 1,
@@ -274,7 +280,10 @@ export default function DashboardPage() {
 
     const aiQuery = useQuery({
         queryKey: ['dashboard', 'ai'],
-        queryFn: async () => (await api.get('/reports/ai-analysis')).data,
+        queryFn: async () => {
+            const res = await reportsAPI.getAIAnalysis({});
+            return (res as any).data ?? res;
+        },
         staleTime: 1000 * 60 * 5,
         gcTime: 1000 * 60 * 30,
         retry: false,
@@ -335,8 +344,9 @@ export default function DashboardPage() {
     // CSV Export
     const handleExportCSV = async () => {
         try {
-            const res = await api.get('/loans?limit=9999');
-            const loans = res.data?.loans || [];
+            const res = await loansAPI.getAll({ limit: 9999 });
+            const data = (res as any).data ?? res;
+            const loans = data?.loans || [];
             if (!loans.length) { addToast({ type: 'warning', title: 'لا توجد بيانات', text: 'لم يتم العثور على قروض' }); return; }
             const headers = ['الاسم', 'رقم الهوية', 'الجوال', 'المبلغ', 'الحالة', 'تاريخ المعاملة'];
             const rows = loans.map((l: any) => [
