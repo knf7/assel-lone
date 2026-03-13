@@ -1,5 +1,85 @@
 import axios from 'axios';
 
+const API_CACHE_PREFIX = 'api-cache:';
+const API_CACHE_TTL_MS = 1000 * 30;
+const memoryCache = new Map<string, { data: any; savedAt: number }>();
+
+const getMerchantCacheTag = () => {
+    if (typeof window === 'undefined') return 'server';
+    try {
+        return localStorage.getItem('merchant_id') || 'unknown';
+    } catch {
+        return 'unknown';
+    }
+};
+
+const buildCacheKey = (url: string, params?: any) => {
+    const tag = getMerchantCacheTag();
+    const query = params ? JSON.stringify(params) : '';
+    return `${API_CACHE_PREFIX}${tag}::${url}?${query}`;
+};
+
+const readCached = (key: string) => {
+    const now = Date.now();
+    const inMemory = memoryCache.get(key);
+    if (inMemory && now - inMemory.savedAt < API_CACHE_TTL_MS) {
+        return inMemory.data;
+    }
+    if (typeof window === 'undefined') return undefined;
+    try {
+        const raw = sessionStorage.getItem(key);
+        if (!raw) return undefined;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') return undefined;
+        if (!parsed.savedAt || now - parsed.savedAt > API_CACHE_TTL_MS) {
+            sessionStorage.removeItem(key);
+            return undefined;
+        }
+        memoryCache.set(key, { data: parsed.data, savedAt: parsed.savedAt });
+        return parsed.data;
+    } catch {
+        return undefined;
+    }
+};
+
+const writeCached = (key: string, data: any) => {
+    const savedAt = Date.now();
+    memoryCache.set(key, { data, savedAt });
+    if (typeof window === 'undefined') return;
+    try {
+        sessionStorage.setItem(key, JSON.stringify({ data, savedAt }));
+    } catch { /* ignore */ }
+};
+
+const clearCacheByPrefix = (urlPrefix: string) => {
+    const matcher = `::${urlPrefix}`;
+    memoryCache.forEach((_value, key) => {
+        if (key.includes(matcher)) memoryCache.delete(key);
+    });
+    if (typeof window === 'undefined') return;
+    try {
+        Object.keys(sessionStorage).forEach((key) => {
+            if (key.startsWith(API_CACHE_PREFIX) && key.includes(matcher)) {
+                sessionStorage.removeItem(key);
+            }
+        });
+    } catch { /* ignore */ }
+};
+
+const clearDashboardCache = () => {
+    if (typeof window === 'undefined') return;
+    const clearStore = (storage: Storage) => {
+        Object.keys(storage).forEach((key) => {
+            if (key.startsWith('dashboard-')) {
+                storage.removeItem(key);
+            }
+        });
+    };
+    try {
+        clearStore(sessionStorage);
+        clearStore(localStorage);
+    } catch { /* ignore */ }
+};
 
 const api = axios.create({
     baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost/api',
@@ -8,6 +88,17 @@ const api = axios.create({
         'Content-Type': 'application/json',
     },
 });
+
+const cachedGet = async (url: string, config: any = {}) => {
+    const key = buildCacheKey(url, config?.params);
+    const cached = readCached(key);
+    if (cached !== undefined) {
+        return Promise.resolve({ data: cached } as any);
+    }
+    const res = await api.get(url, config);
+    writeCached(key, res.data);
+    return res;
+};
 
 // Request interceptor: Attach Clerk token + merchant_id
 api.interceptors.request.use(async (config) => {
@@ -53,12 +144,36 @@ api.interceptors.response.use(
 );
 
 export const loansAPI = {
-    getAll: (params: any) => api.get('/loans', { params }),
-    getById: (id: string) => api.get(`/loans/${id}`),
-    create: (data: any) => api.post('/loans', data),
-    update: (id: string, data: any) => api.patch(`/loans/${id}`, data),
-    updateStatus: (id: string, status: string, extra: any = {}) => api.patch(`/loans/${id}/status`, { status, ...extra }),
-    delete: (id: string) => api.delete(`/loans/${id}`),
+    getAll: (params: any) => cachedGet('/loans', { params }),
+    getById: (id: string) => cachedGet(`/loans/${id}`),
+    create: async (data: any) => {
+        const res = await api.post('/loans', data);
+        clearCacheByPrefix('/loans');
+        clearCacheByPrefix('/reports');
+        clearDashboardCache();
+        return res;
+    },
+    update: async (id: string, data: any) => {
+        const res = await api.patch(`/loans/${id}`, data);
+        clearCacheByPrefix('/loans');
+        clearCacheByPrefix('/reports');
+        clearDashboardCache();
+        return res;
+    },
+    updateStatus: async (id: string, status: string, extra: any = {}) => {
+        const res = await api.patch(`/loans/${id}/status`, { status, ...extra });
+        clearCacheByPrefix('/loans');
+        clearCacheByPrefix('/reports');
+        clearDashboardCache();
+        return res;
+    },
+    delete: async (id: string) => {
+        const res = await api.delete(`/loans/${id}`);
+        clearCacheByPrefix('/loans');
+        clearCacheByPrefix('/reports');
+        clearDashboardCache();
+        return res;
+    },
     export: (params: any) => api.get('/reports/export-loans', { params, responseType: 'blob' }).then(res => {
         const url = window.URL.createObjectURL(new Blob([res.data]));
         const link = document.createElement('a');
@@ -67,22 +182,56 @@ export const loansAPI = {
         document.body.appendChild(link);
         link.click();
     }),
-    upload: (formData: FormData) => api.post('/loans/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-    }),
-    uploadAttachment: (formData: FormData) => api.post('/loans/upload-attachment', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-    }),
+    upload: async (formData: FormData) => {
+        const res = await api.post('/loans/upload', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        clearCacheByPrefix('/loans');
+        clearCacheByPrefix('/reports');
+        clearDashboardCache();
+        return res;
+    },
+    uploadAttachment: async (formData: FormData) => {
+        const res = await api.post('/loans/upload-attachment', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        clearCacheByPrefix('/loans');
+        clearCacheByPrefix('/reports');
+        clearDashboardCache();
+        return res;
+    },
 };
 
 export const customersAPI = {
-    getAll: (params: any) => api.get('/customers', { params }),
-    getById: (id: string) => api.get(`/customers/${id}`),
-    getRatings: (id: string, params?: any) => api.get(`/customers/${id}/ratings`, { params }),
-    saveRating: (id: string, data: any) => api.post(`/customers/${id}/ratings`, data),
-    create: (data: any) => api.post('/customers', data),
-    update: (id: string, data: any) => api.patch(`/customers/${id}`, data),
-    delete: (id: string) => api.delete(`/customers/${id}`),
+    getAll: (params: any) => cachedGet('/customers', { params }),
+    getById: (id: string) => cachedGet(`/customers/${id}`),
+    getRatings: (id: string, params?: any) => cachedGet(`/customers/${id}/ratings`, { params }),
+    saveRating: async (id: string, data: any) => {
+        const res = await api.post(`/customers/${id}/ratings`, data);
+        clearCacheByPrefix('/customers');
+        return res;
+    },
+    create: async (data: any) => {
+        const res = await api.post('/customers', data);
+        clearCacheByPrefix('/customers');
+        clearCacheByPrefix('/reports');
+        clearDashboardCache();
+        return res;
+    },
+    update: async (id: string, data: any) => {
+        const res = await api.patch(`/customers/${id}`, data);
+        clearCacheByPrefix('/customers');
+        clearCacheByPrefix('/reports');
+        clearDashboardCache();
+        return res;
+    },
+    delete: async (id: string) => {
+        const res = await api.delete(`/customers/${id}`);
+        clearCacheByPrefix('/customers');
+        clearCacheByPrefix('/reports');
+        clearDashboardCache();
+        return res;
+    },
 };
 
 export const settingsAPI = {
@@ -97,17 +246,33 @@ export const authAPI = {
 };
 
 export const employeesAPI = {
-    getAll: (params?: any) => api.get('/employees', { params }),
-    create: (data: any) => api.post('/employees', data),
-    update: (id: string, data: any) => api.patch(`/employees/${id}`, data),
-    activate: (id: string) => api.patch(`/employees/${id}/activate`),
-    delete: (id: string) => api.delete(`/employees/${id}`),
+    getAll: (params?: any) => cachedGet('/employees', { params }),
+    create: async (data: any) => {
+        const res = await api.post('/employees', data);
+        clearCacheByPrefix('/employees');
+        return res;
+    },
+    update: async (id: string, data: any) => {
+        const res = await api.patch(`/employees/${id}`, data);
+        clearCacheByPrefix('/employees');
+        return res;
+    },
+    activate: async (id: string) => {
+        const res = await api.patch(`/employees/${id}/activate`);
+        clearCacheByPrefix('/employees');
+        return res;
+    },
+    delete: async (id: string) => {
+        const res = await api.delete(`/employees/${id}`);
+        clearCacheByPrefix('/employees');
+        return res;
+    },
 };
 
 export const reportsAPI = {
-    getDashboard: (params: any) => api.get('/reports/dashboard', { params }),
-    getAnalytics: (params: any) => api.get('/reports/analytics', { params }),
-    getAIAnalysis: (params: any) => api.get('/reports/ai-analysis', { params }),
+    getDashboard: (params: any) => cachedGet('/reports/dashboard', { params }),
+    getAnalytics: (params: any) => cachedGet('/reports/analytics', { params }),
+    getAIAnalysis: (params: any) => cachedGet('/reports/ai-analysis', { params }),
 };
 
 export default api;

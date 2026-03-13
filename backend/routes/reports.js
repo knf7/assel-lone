@@ -3,8 +3,41 @@ const ExcelJS = require('exceljs');
 const db = require('../config/database');
 const { authenticateToken, injectMerchantId, checkPermission } = require('../middleware/auth');
 const { getCache, setCache } = require('../utils/cache');
+const { getLoanColumnFlags } = require('../utils/loanColumns');
 
 const router = express.Router();
+
+const buildLoanSqlHelpers = (columnFlags) => {
+    const prefix = (alias = '') => (alias ? `${alias}.` : '');
+    const deletedFilter = (alias = '') =>
+        columnFlags.hasDeletedAt ? `AND ${prefix(alias)}deleted_at IS NULL` : '';
+    const isNajizCase = (alias = '') =>
+        columnFlags.hasIsNajizCase ? `COALESCE(${prefix(alias)}is_najiz_case, false) = true` : 'false';
+    const najizCollectedPaid = (alias = '') =>
+        columnFlags.hasNajizCollectedAmount
+            ? `COALESCE(NULLIF(${prefix(alias)}najiz_collected_amount, 0), ${prefix(alias)}najiz_case_amount, ${prefix(alias)}amount, 0)`
+            : `COALESCE(${prefix(alias)}najiz_case_amount, ${prefix(alias)}amount, 0)`;
+    const najizCollectedValue = (alias = '') =>
+        columnFlags.hasNajizCollectedAmount
+            ? `COALESCE(${prefix(alias)}najiz_collected_amount, 0)`
+            : '0';
+    const principalAmount = (alias = '') =>
+        columnFlags.hasPrincipalAmount
+            ? `COALESCE(NULLIF(${prefix(alias)}principal_amount, 0), ${prefix(alias)}amount)`
+            : `${prefix(alias)}amount`;
+    const najizRaisedOrder = columnFlags.hasNajizRaisedDate
+        ? `COALESCE(l.najiz_raised_date, l.updated_at, l.created_at)`
+        : `COALESCE(l.updated_at, l.created_at)`;
+
+    return {
+        deletedFilter,
+        isNajizCase,
+        najizCollectedPaid,
+        najizCollectedValue,
+        principalAmount,
+        najizRaisedOrder,
+    };
+};
 
 // Apply auth middleware to all routes
 router.use(authenticateToken);
@@ -18,6 +51,8 @@ router.use(injectMerchantId);
 router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res) => {
     try {
         const id = req.merchantId;
+        const columnFlags = await getLoanColumnFlags();
+        const loanSql = buildLoanSqlHelpers(columnFlags);
         const isMockedDb = Boolean(db.query && db.query._isMockFunction);
         const cacheKey = `reports:dashboard:${id}`;
         const useCache = !isMockedDb;
@@ -70,8 +105,8 @@ router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res)
                 `SELECT
                    COALESCE(SUM(
                      CASE
-                       WHEN status = 'Paid' AND (COALESCE(is_najiz_case, false) = true OR najiz_case_number IS NOT NULL)
-                         THEN COALESCE(NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount, 0)
+                       WHEN status = 'Paid' AND (${loanSql.isNajizCase()} OR najiz_case_number IS NOT NULL)
+                         THEN ${loanSql.najizCollectedPaid()}
                        WHEN status = 'Paid'
                          THEN amount
                        ELSE 0
@@ -110,7 +145,7 @@ router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res)
                 : db.query(
                     `SELECT
                    COUNT(*) FILTER (
-                     WHERE COALESCE(is_najiz_case, false) = true
+                     WHERE ${loanSql.isNajizCase()}
                         OR najiz_case_number IS NOT NULL
                         OR status = 'Raised'
                    ) AS total_cases,
@@ -118,31 +153,31 @@ router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res)
                    COUNT(*) FILTER (
                      WHERE status = 'Paid'
                        AND (
-                         COALESCE(is_najiz_case, false) = true
+                         ${loanSql.isNajizCase()}
                          OR najiz_case_number IS NOT NULL
                        )
                    ) AS paid_cases,
                    COALESCE(SUM(COALESCE(najiz_case_amount, 0)) FILTER (
-                     WHERE COALESCE(is_najiz_case, false) = true
+                     WHERE ${loanSql.isNajizCase()}
                         OR najiz_case_number IS NOT NULL
                         OR status = 'Raised'
                    ), 0) AS total_raised_amount,
                    COALESCE(SUM(
                      CASE
                        WHEN status = 'Paid'
-                         THEN COALESCE(NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount)
-                       ELSE COALESCE(najiz_collected_amount, 0)
+                         THEN ${loanSql.najizCollectedPaid()}
+                       ELSE ${loanSql.najizCollectedValue()}
                      END
                    ) FILTER (
-                     WHERE COALESCE(is_najiz_case, false) = true
+                     WHERE ${loanSql.isNajizCase()}
                         OR najiz_case_number IS NOT NULL
                         OR status = 'Raised'
                    ), 0) AS total_collected_amount
                  FROM loans
                  WHERE merchant_id = $1
-                   AND deleted_at IS NULL`,
-                    [id]
-                ),
+                   ${loanSql.deletedFilter()}`,
+                [id]
+            ),
             isMockedDb
                 ? Promise.resolve({ rows: [] })
                 : db.query(
@@ -153,7 +188,7 @@ router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res)
                    l.updated_at,
                    l.najiz_case_number,
                    l.najiz_case_amount,
-                   l.najiz_collected_amount,
+                   ${loanSql.najizCollectedValue('l')} AS najiz_collected_amount,
                    l.najiz_status,
                    l.najiz_plaintiff_name,
                    c.full_name AS customer_name,
@@ -161,16 +196,16 @@ router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res)
                  FROM loans l
                  LEFT JOIN customers c ON l.customer_id = c.id
                  WHERE l.merchant_id = $1
-                   AND l.deleted_at IS NULL
+                   ${loanSql.deletedFilter('l')}
                    AND (
-                     COALESCE(l.is_najiz_case, false) = true
+                     ${loanSql.isNajizCase('l')}
                      OR l.najiz_case_number IS NOT NULL
                      OR l.status = 'Raised'
                    )
-                 ORDER BY COALESCE(l.najiz_raised_date, l.updated_at, l.created_at) DESC
+                 ORDER BY ${loanSql.najizRaisedOrder} DESC
                  LIMIT 8`,
-                    [id]
-                )
+                [id]
+            )
         ]);
 
         const paid = parseFloat(rateRes.rows[0].paid);
@@ -224,6 +259,8 @@ router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res)
 router.get('/analytics', checkPermission('can_view_analytics'), async (req, res) => {
     try {
         const id = req.merchantId;
+        const columnFlags = await getLoanColumnFlags();
+        const loanSql = buildLoanSqlHelpers(columnFlags);
         const isMockedDb = Boolean(db.query && db.query._isMockFunction);
         const interval = req.query.interval || 'month';
         const cacheKey = `reports:analytics:${id}:${interval}`;
@@ -273,7 +310,7 @@ router.get('/analytics', checkPermission('can_view_analytics'), async (req, res)
                    COUNT(*)     AS loan_count
                  FROM loans
                  WHERE merchant_id = $1
-                   AND deleted_at IS NULL
+                   ${loanSql.deletedFilter()}
                    AND transaction_date >= CURRENT_DATE - CAST($4 AS INTERVAL)
                  GROUP BY DATE_TRUNC($2, transaction_date)
                  ORDER BY DATE_TRUNC($2, transaction_date) ASC`,
@@ -284,7 +321,7 @@ router.get('/analytics', checkPermission('can_view_analytics'), async (req, res)
                    status,
                    COUNT(*)     AS count,
                    SUM(amount)  AS total
-                 FROM loans WHERE merchant_id = $1 AND deleted_at IS NULL
+                 FROM loans WHERE merchant_id = $1 ${loanSql.deletedFilter()}
                  GROUP BY status
                  ORDER BY count DESC`,
                 [id]
@@ -295,7 +332,7 @@ router.get('/analytics', checkPermission('can_view_analytics'), async (req, res)
                         COUNT(l.id)   AS loan_count
                  FROM customers c
                  JOIN loans l ON l.customer_id = c.id
-                 WHERE c.merchant_id = $1 AND l.status = 'Active' AND l.deleted_at IS NULL
+                 WHERE c.merchant_id = $1 AND l.status = 'Active' ${loanSql.deletedFilter('l')}
                  GROUP BY c.id, c.full_name, c.mobile_number
                  ORDER BY total_debt DESC
                  LIMIT 10`,
@@ -315,8 +352,8 @@ router.get('/analytics', checkPermission('can_view_analytics'), async (req, res)
                    SELECT amount,
                           EXTRACT(DAY FROM CURRENT_DATE - transaction_date)::int AS age_days
                    FROM loans
-                   WHERE merchant_id = $1
-                     AND deleted_at IS NULL
+                 WHERE merchant_id = $1
+                     ${loanSql.deletedFilter()}
                      AND status = 'Active'
                      AND transaction_date < CURRENT_DATE - INTERVAL '30 days'
                  ) sub
@@ -329,15 +366,15 @@ router.get('/analytics', checkPermission('can_view_analytics'), async (req, res)
                    TO_CHAR(DATE_TRUNC('month', updated_at), 'YYYY-MM') AS month,
                    SUM(
                      CASE
-                       WHEN COALESCE(is_najiz_case, false) = true
-                         THEN COALESCE(NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount)
+                       WHEN ${loanSql.isNajizCase()}
+                         THEN ${loanSql.najizCollectedPaid()}
                        ELSE amount
                      END
                    ) AS collected,
                    COUNT(*)     AS count
                  FROM loans
                  WHERE merchant_id = $1 AND status = 'Paid'
-                   AND deleted_at IS NULL
+                   ${loanSql.deletedFilter()}
                    AND updated_at >= CURRENT_DATE - INTERVAL '12 months'
                  GROUP BY DATE_TRUNC('month', updated_at)
                  ORDER BY month ASC`,
@@ -347,34 +384,34 @@ router.get('/analytics', checkPermission('can_view_analytics'), async (req, res)
                 `SELECT
                    COALESCE(SUM(
                      CASE
-                       WHEN status = 'Paid' AND COALESCE(is_najiz_case, false) = false
-                         THEN GREATEST(amount - COALESCE(NULLIF(principal_amount, 0), amount), 0)
+                       WHEN status = 'Paid' AND NOT (${loanSql.isNajizCase()})
+                         THEN GREATEST(amount - ${loanSql.principalAmount()}, 0)
                        ELSE 0
                      END
                    ), 0) AS regular_profit,
                    COALESCE(SUM(
                      CASE
-                       WHEN status = 'Paid' AND COALESCE(is_najiz_case, false) = true
-                         THEN GREATEST(COALESCE(NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount) - amount, 0)
+                       WHEN status = 'Paid' AND (${loanSql.isNajizCase()})
+                         THEN GREATEST(${loanSql.najizCollectedPaid()} - amount, 0)
                        ELSE 0
                      END
                    ), 0) AS najiz_profit,
                    COALESCE(SUM(
                      CASE
-                       WHEN status = 'Paid' AND COALESCE(is_najiz_case, false) = false THEN amount
+                       WHEN status = 'Paid' AND NOT (${loanSql.isNajizCase()}) THEN amount
                        ELSE 0
                      END
                    ), 0) AS regular_collected,
                    COALESCE(SUM(
                      CASE
-                       WHEN status = 'Paid' AND COALESCE(is_najiz_case, false) = true
-                         THEN COALESCE(NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount)
+                       WHEN status = 'Paid' AND (${loanSql.isNajizCase()})
+                         THEN ${loanSql.najizCollectedPaid()}
                        ELSE 0
                      END
                    ), 0) AS najiz_collected,
                    COALESCE(SUM(amount), 0) AS portfolio_total
                  FROM loans
-                 WHERE merchant_id = $1 AND deleted_at IS NULL`,
+                 WHERE merchant_id = $1 ${loanSql.deletedFilter()}`,
                 [id]
             )
         ]);
