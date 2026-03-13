@@ -17,6 +17,7 @@ import {
   YAxis,
 } from 'recharts';
 import { reportsAPI, settingsAPI } from '@/lib/api';
+import { useDataSync } from '@/hooks/useDataSync';
 import './analytics.css';
 
 type ProfileResponse = {
@@ -112,6 +113,7 @@ export default function AnalyticsPage() {
     totalProfit: 0,
     collectionRate: 0,
   });
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const isFreePlan = useMemo(() => subscriptionPlan.toLowerCase() === 'free', [subscriptionPlan]);
 
@@ -130,6 +132,10 @@ export default function AnalyticsPage() {
 
     fetchProfile();
   }, []);
+
+  useDataSync(() => {
+    setRefreshKey(Date.now());
+  }, { scopes: ['reports', 'dashboard', 'loans', 'customers', 'najiz'], debounceMs: 250 });
 
   useEffect(() => {
     const fetchAnalytics = async () => {
@@ -205,7 +211,7 @@ export default function AnalyticsPage() {
     };
 
     fetchAnalytics();
-  }, [period]);
+  }, [period, refreshKey]);
 
   if (loading) {
     return (

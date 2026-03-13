@@ -4,6 +4,65 @@ const API_CACHE_PREFIX = 'api-cache:';
 const API_CACHE_TTL_MS = 1000 * 120;
 const memoryCache = new Map<string, { data: any; savedAt: number }>();
 export const DASHBOARD_DIRTY_KEY = 'dashboard-dirty';
+const DATA_SYNC_STORAGE_KEY = 'aseel-data-sync';
+const DATA_SYNC_CHANNEL = 'aseel-data-sync';
+let syncChannel: BroadcastChannel | null = null;
+
+export type DataSyncEvent = {
+    scopes: string[];
+    reason?: string;
+    ts: number;
+};
+
+const getSyncChannel = () => {
+    if (typeof window === 'undefined' || !('BroadcastChannel' in window)) return null;
+    if (!syncChannel) {
+        syncChannel = new BroadcastChannel(DATA_SYNC_CHANNEL);
+    }
+    return syncChannel;
+};
+
+export const emitDataSync = (payload: { scopes: string[]; reason?: string }) => {
+    if (typeof window === 'undefined') return;
+    const event: DataSyncEvent = {
+        scopes: Array.isArray(payload.scopes) ? payload.scopes : [String(payload.scopes)],
+        reason: payload.reason,
+        ts: Date.now(),
+    };
+    try {
+        getSyncChannel()?.postMessage(event);
+    } catch { /* ignore */ }
+    try {
+        localStorage.setItem(DATA_SYNC_STORAGE_KEY, JSON.stringify(event));
+    } catch { /* ignore */ }
+    try {
+        window.dispatchEvent(new CustomEvent('aseel-sync', { detail: event }));
+    } catch { /* ignore */ }
+};
+
+export const subscribeDataSync = (handler: (event: DataSyncEvent) => void) => {
+    if (typeof window === 'undefined') return () => {};
+    const channel = getSyncChannel();
+    const onMessage = (event: MessageEvent) => handler(event.data);
+    const onStorage = (event: StorageEvent) => {
+        if (event.key !== DATA_SYNC_STORAGE_KEY || !event.newValue) return;
+        try {
+            handler(JSON.parse(event.newValue));
+        } catch { /* ignore */ }
+    };
+    const onCustom = (event: Event) => {
+        const detail = (event as CustomEvent).detail;
+        if (detail) handler(detail);
+    };
+    channel?.addEventListener('message', onMessage);
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('aseel-sync', onCustom as EventListener);
+    return () => {
+        channel?.removeEventListener('message', onMessage);
+        window.removeEventListener('storage', onStorage);
+        window.removeEventListener('aseel-sync', onCustom as EventListener);
+    };
+};
 
 const getMerchantCacheTag = () => {
     if (typeof window === 'undefined') return 'server';
@@ -85,6 +144,7 @@ const clearDashboardCache = () => {
         clearStore(sessionStorage);
         clearStore(localStorage);
         localStorage.setItem(DASHBOARD_DIRTY_KEY, String(Date.now()));
+        emitDataSync({ scopes: ['dashboard', 'reports'], reason: 'dashboard-cache-cleared' });
     } catch { /* ignore */ }
 };
 
@@ -121,6 +181,7 @@ const cachedGet = async (url: string, config: any = {}) => {
     const key = buildCacheKey(url, config?.params);
     const cached = readCached(key);
     if (cached !== undefined) {
+        warmCache(url, config, true);
         return Promise.resolve({ data: cached } as any);
     }
     const res = await api.get(url, config);
@@ -128,10 +189,10 @@ const cachedGet = async (url: string, config: any = {}) => {
     return res;
 };
 
-const warmCache = async (url: string, config: any = {}) => {
+const warmCache = async (url: string, config: any = {}, force = false) => {
     const key = buildCacheKey(url, config?.params);
     const cached = readCached(key);
-    if (cached !== undefined) return;
+    if (!force && cached !== undefined) return;
     try {
         const res = await api.get(url, config);
         writeCached(key, res.data);
@@ -193,6 +254,7 @@ export const loansAPI = {
         clearCacheByPrefix('/loans');
         clearCacheByPrefix('/reports');
         clearDashboardCache();
+        emitDataSync({ scopes: ['loans', 'customers', 'dashboard', 'reports', 'analytics', 'najiz'], reason: 'loan-created' });
         return res;
     },
     update: async (id: string, data: any) => {
@@ -200,6 +262,7 @@ export const loansAPI = {
         clearCacheByPrefix('/loans');
         clearCacheByPrefix('/reports');
         clearDashboardCache();
+        emitDataSync({ scopes: ['loans', 'customers', 'dashboard', 'reports', 'analytics', 'najiz'], reason: 'loan-updated' });
         return res;
     },
     updateStatus: async (id: string, status: string, extra: any = {}) => {
@@ -207,6 +270,7 @@ export const loansAPI = {
         clearCacheByPrefix('/loans');
         clearCacheByPrefix('/reports');
         clearDashboardCache();
+        emitDataSync({ scopes: ['loans', 'customers', 'dashboard', 'reports', 'analytics', 'najiz'], reason: 'loan-status' });
         return res;
     },
     delete: async (id: string) => {
@@ -214,6 +278,7 @@ export const loansAPI = {
         clearCacheByPrefix('/loans');
         clearCacheByPrefix('/reports');
         clearDashboardCache();
+        emitDataSync({ scopes: ['loans', 'customers', 'dashboard', 'reports', 'analytics', 'najiz'], reason: 'loan-deleted' });
         return res;
     },
     export: (params: any) => api.get('/reports/export-loans', { params, responseType: 'blob' }).then(res => {
@@ -231,6 +296,7 @@ export const loansAPI = {
         clearCacheByPrefix('/loans');
         clearCacheByPrefix('/reports');
         clearDashboardCache();
+        emitDataSync({ scopes: ['loans', 'customers', 'dashboard', 'reports', 'analytics', 'najiz'], reason: 'loan-upload' });
         return res;
     },
     uploadAttachment: async (formData: FormData) => {
@@ -240,6 +306,7 @@ export const loansAPI = {
         clearCacheByPrefix('/loans');
         clearCacheByPrefix('/reports');
         clearDashboardCache();
+        emitDataSync({ scopes: ['loans', 'customers', 'dashboard', 'reports', 'analytics', 'najiz'], reason: 'loan-attachment' });
         return res;
     },
 };
@@ -253,6 +320,7 @@ export const customersAPI = {
     saveRating: async (id: string, data: any) => {
         const res = await api.post(`/customers/${id}/ratings`, data);
         clearCacheByPrefix('/customers');
+        emitDataSync({ scopes: ['customers', 'dashboard', 'reports'], reason: 'customer-rating' });
         return res;
     },
     create: async (data: any) => {
@@ -260,6 +328,7 @@ export const customersAPI = {
         clearCacheByPrefix('/customers');
         clearCacheByPrefix('/reports');
         clearDashboardCache();
+        emitDataSync({ scopes: ['customers', 'loans', 'dashboard', 'reports'], reason: 'customer-created' });
         return res;
     },
     update: async (id: string, data: any) => {
@@ -267,6 +336,7 @@ export const customersAPI = {
         clearCacheByPrefix('/customers');
         clearCacheByPrefix('/reports');
         clearDashboardCache();
+        emitDataSync({ scopes: ['customers', 'loans', 'dashboard', 'reports'], reason: 'customer-updated' });
         return res;
     },
     delete: async (id: string) => {
@@ -274,6 +344,7 @@ export const customersAPI = {
         clearCacheByPrefix('/customers');
         clearCacheByPrefix('/reports');
         clearDashboardCache();
+        emitDataSync({ scopes: ['customers', 'loans', 'dashboard', 'reports'], reason: 'customer-deleted' });
         return res;
     },
 };

@@ -8,11 +8,12 @@ import {
     XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import { loansAPI, reportsAPI, DASHBOARD_DIRTY_KEY } from '@/lib/api';
+import { useDataSync } from '@/hooks/useDataSync';
 import {
     DollarSign, Users, Calendar, CheckCircle2, AlertTriangle,
     TrendingUp, TrendingDown, Download, Plus, Rocket,
     Shield, User, AlertCircle, Info, ClipboardList, PieChart as PieChartIcon,
-    CreditCard, Upload, BarChart3
+    CreditCard, Upload, BarChart3, BadgeDollarSign
 } from 'lucide-react';
 import './dashboard.css';
 
@@ -378,6 +379,13 @@ export default function DashboardPage() {
         } catch { /* ignore */ }
     }, [queryClient, summaryQuery]);
 
+    useDataSync(() => {
+        setRefreshToken(Date.now());
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+        setEnableHeavyFetch(true);
+        summaryQuery.refetch();
+    }, { scopes: ['dashboard', 'reports', 'loans', 'customers', 'najiz'], debounceMs: 250 });
+
     const toggleCategory = useCallback((id: string) => {
         setVisibleCategories((prev) => (
             prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
@@ -511,6 +519,15 @@ export default function DashboardPage() {
             color: 'var(--coral)',
             value: `${(parseFloat(metrics?.totalDebt) || 0).toLocaleString('en-US')} ﷼`,
             sub: 'إجمالي المحفظة النشطة',
+        },
+        {
+            id: 'totalProfit',
+            category: 'finance',
+            label: 'الأرباح المتحققة',
+            Icon: BadgeDollarSign,
+            color: 'var(--success)',
+            value: `${(parseFloat(metrics?.totalProfit) || 0).toLocaleString('en-US')} ﷼`,
+            sub: 'إجمالي الفوائد المحققة',
         },
         {
             id: 'totalCustomers',

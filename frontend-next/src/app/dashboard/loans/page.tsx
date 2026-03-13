@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo, useDeferredValue, useTransition } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useDeferredValue, useTransition, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { loansAPI, customersAPI } from '@/lib/api';
 import { toast } from 'sonner';
@@ -9,6 +9,7 @@ import {
     IconWhatsapp, IconScale, IconEdit
 } from '@/components/layout/icons';
 import MoneyRain from '@/components/layout/MoneyRain';
+import { useDataSync } from '@/hooks/useDataSync';
 import './loans.css';
 
 const LoansPage = () => {
@@ -38,6 +39,13 @@ const LoansPage = () => {
     const [editingLoan, setEditingLoan] = useState<any>(null);
     const [showMoneyRain, setShowMoneyRain] = useState(false);
     const [deleteLoanId, setDeleteLoanId] = useState<string | null>(null);
+    const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const loansRef = useRef<any[]>(loans);
+    const requestIdRef = useRef(0);
+
+    useEffect(() => {
+        loansRef.current = loans;
+    }, [loans]);
 
     useEffect(() => {
         const statusParam = searchParams.get('status');
@@ -52,6 +60,7 @@ const LoansPage = () => {
     }, [searchParams]);
 
     const fetchLoans = useCallback(async (pageOverride?: number) => {
+        const requestId = ++requestIdRef.current;
         try {
             const requestPage = pageOverride ?? pagination.page;
             const params = {
@@ -72,6 +81,7 @@ const LoansPage = () => {
                 setLoading(true);
             }
             const response = await loansAPI.getAll(params);
+            if (requestId !== requestIdRef.current) return;
             const data = response.data || response;
             setLoans(data.loans || []);
             setPagination(prev => ({
@@ -98,22 +108,45 @@ const LoansPage = () => {
         fetchLoans();
     }, [fetchLoans]);
 
+    const scheduleRefresh = useCallback((delay = 250) => {
+        if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = setTimeout(() => fetchLoans(pagination.page), delay);
+    }, [fetchLoans, pagination.page]);
+
+    useDataSync(() => {
+        scheduleRefresh(200);
+    }, { scopes: ['loans', 'customers', 'dashboard'], debounceMs: 200 });
+
     const handleStatusChange = async (loanId: string, newStatus: string) => {
+        const previous = loansRef.current;
+        setLoans((prev) => prev.map((loan) => (
+            loan.id === loanId ? { ...loan, status: newStatus } : loan
+        )));
+        if (newStatus === 'Paid') {
+            setShowMoneyRain(true);
+        }
         try {
-            await loansAPI.updateStatus(loanId, newStatus);
-            if (newStatus === 'Paid') {
-                setShowMoneyRain(true);
+            const res = await loansAPI.updateStatus(loanId, newStatus);
+            const updated = (res as any)?.data?.loan || (res as any)?.loan;
+            if (updated) {
+                setLoans((prev) => prev.map((loan) => (
+                    loan.id === loanId ? { ...loan, ...updated } : loan
+                )));
             }
-            await fetchLoans();
+            scheduleRefresh(200);
         } catch (error: any) {
             try {
-                await loansAPI.update(loanId, { status: newStatus });
-                if (newStatus === 'Paid') {
-                    setShowMoneyRain(true);
+                const res = await loansAPI.update(loanId, { status: newStatus });
+                const updated = (res as any)?.data?.loan || (res as any)?.loan;
+                if (updated) {
+                    setLoans((prev) => prev.map((loan) => (
+                        loan.id === loanId ? { ...loan, ...updated } : loan
+                    )));
                 }
-                await fetchLoans();
+                scheduleRefresh(200);
                 return;
             } catch (fallbackError: any) {
+                setLoans(previous);
                 toast.error(
                     fallbackError?.response?.data?.error ||
                     error?.response?.data?.error ||
@@ -131,11 +164,14 @@ const LoansPage = () => {
 
     const confirmDelete = async () => {
         if (!deleteLoanId) return;
+        const previous = loansRef.current;
+        setLoans((prev) => prev.filter((loan) => loan.id !== deleteLoanId));
         try {
             await loansAPI.delete(deleteLoanId);
-            await fetchLoans();
+            scheduleRefresh(200);
             toast.success('تم حذف القرض');
         } catch (error: any) {
+            setLoans(previous);
             toast.error(error?.response?.data?.error || 'فشل حذف القرض');
         } finally {
             setDeleteLoanId(null);

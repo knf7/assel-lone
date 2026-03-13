@@ -66,6 +66,7 @@ router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res)
 
         const [
             debtRes,
+            profitRes,
             custRes,
             monthRes,
             rateRes,
@@ -78,6 +79,19 @@ router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res)
             db.query(
                 `SELECT COALESCE(SUM(amount), 0) AS total_debt
                  FROM loans WHERE merchant_id = $1 AND status = 'Active'`,
+                [id]
+            ),
+            db.query(
+                `SELECT COALESCE(SUM(
+                    CASE
+                        WHEN l.status IN ('Active', 'Paid', 'Raised')
+                            THEN GREATEST(l.amount - ${loanSql.principalAmount('l')}, 0)
+                        ELSE 0
+                    END
+                ), 0) AS total_profit
+                 FROM loans l
+                 WHERE l.merchant_id = $1
+                 ${loanSql.deletedFilter('l')}`,
                 [id]
             ),
             db.query(
@@ -220,6 +234,7 @@ router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res)
         const payload = {
             metrics: {
                 totalDebt: parseFloat(debtRes.rows[0].total_debt),
+                totalProfit: parseFloat(profitRes.rows[0].total_profit || 0),
                 totalCustomers: parseInt(custRes.rows[0].total_customers),
                 activeCustomers: parseInt(custRes.rows[0].active_customers),
                 loansThisMonth: parseInt(monthRes.rows[0].count),

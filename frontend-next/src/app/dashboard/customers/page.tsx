@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo, useDeferredValue, useTransition } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useDeferredValue, useTransition, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { customersAPI } from '@/lib/api';
 import { toast } from 'sonner';
 import { IconWhatsapp, IconScale, IconEdit } from '@/components/layout/icons';
+import { useDataSync } from '@/hooks/useDataSync';
 import './customers.css';
 
 export default function CustomersPage() {
@@ -24,8 +25,11 @@ export default function CustomersPage() {
     const [showAdd, setShowAdd] = useState(false);
     const [editingCustomer, setEditingCustomer] = useState<any>(null);
     const [ratingCustomer, setRatingCustomer] = useState<any>(null);
+    const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const requestIdRef = useRef(0);
 
     const fetchCustomers = useCallback(async (pageOverride?: number) => {
+        const requestId = ++requestIdRef.current;
         const requestPage = pageOverride ?? page;
         const params = { page: requestPage, limit: 15, search: deferredSearch || undefined };
         const cached = customersAPI.peekAll(params);
@@ -40,6 +44,7 @@ export default function CustomersPage() {
         setErrorMsg('');
         try {
             const res = await customersAPI.getAll(params);
+            if (requestId !== requestIdRef.current) return;
             const d = res.data;
             setCustomers(d.customers || []);
             setPage(requestPage);
@@ -70,6 +75,15 @@ export default function CustomersPage() {
     }, [page, deferredSearch, customers.length]);
 
     useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
+
+    const scheduleRefresh = useCallback((delay = 250) => {
+        if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = setTimeout(() => fetchCustomers(page), delay);
+    }, [fetchCustomers, page]);
+
+    useDataSync(() => {
+        scheduleRefresh(200);
+    }, { scopes: ['customers', 'loans', 'dashboard'], debounceMs: 200 });
 
     const exportCSV = async () => {
         const res = await customersAPI.getAll({ limit: 9999 });
@@ -114,6 +128,7 @@ export default function CustomersPage() {
                     onSaved={async () => {
                         setShowAdd(false);
                         await fetchCustomers(1);
+                        scheduleRefresh(200);
                         toast.success('تم إضافة العميل وتحديث القائمة');
                     }}
                 />
@@ -123,9 +138,19 @@ export default function CustomersPage() {
                 <EditCustomerModal
                     customer={editingCustomer}
                     onClose={() => setEditingCustomer(null)}
-                    onSaved={async () => {
+                    onSaved={async (updatedCustomer?: any) => {
                         setEditingCustomer(null);
-                        await fetchCustomers();
+                        if (updatedCustomer) {
+                            const normalized = {
+                                ...updatedCustomer,
+                                whatsappLink: updatedCustomer.whatsappLink
+                                    || (updatedCustomer.mobile_number ? `https://wa.me/${String(updatedCustomer.mobile_number).replace(/\D/g, '')}` : null)
+                            };
+                            setCustomers((prev) => prev.map((c) => (
+                                c.id === normalized.id ? { ...c, ...normalized } : c
+                            )));
+                        }
+                        scheduleRefresh(200);
                         toast.success('تم تحديث بيانات العميل');
                     }}
                 />
@@ -550,8 +575,9 @@ function EditCustomerModal({ customer, onClose, onSaved }: any) {
                 mobileNumber: form.mobile_number,
                 email: form.email
             };
-            await customersAPI.update(customer.id, payload);
-            onSaved();
+            const res = await customersAPI.update(customer.id, payload);
+            const updated = res?.data?.customer || res?.customer;
+            onSaved(updated);
         } catch (err: any) {
             setError(err.response?.data?.error || 'حدث خطأ أثناء التعديل');
         } finally { setLoading(false); }

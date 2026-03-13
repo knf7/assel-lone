@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { loansAPI } from '@/lib/api';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -8,6 +8,7 @@ import {
     IconSearch, IconSave, IconExternalLink, IconDollarSign,
     IconShield, IconMessageCircle
 } from '@/components/layout/icons';
+import { useDataSync } from '@/hooks/useDataSync';
 import './najiz.css';
 
 type NajizCase = {
@@ -33,10 +34,20 @@ export default function NajizCasesPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [updatingId, setUpdatingId] = useState<string | null>(null);
     const [confirmPaidCaseId, setConfirmPaidCaseId] = useState<string | null>(null);
+    const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     useEffect(() => {
         fetchCases();
     }, []);
+
+    const scheduleRefresh = useCallback((delay = 250) => {
+        if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = setTimeout(() => fetchCases(), delay);
+    }, []);
+
+    useDataSync(() => {
+        scheduleRefresh(200);
+    }, { scopes: ['loans', 'dashboard', 'reports', 'najiz'], debounceMs: 200 });
 
     const fetchCases = async () => {
         try {
