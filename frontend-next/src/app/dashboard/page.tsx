@@ -35,6 +35,17 @@ const CHART_INTERVALS = [
     { id: 'year', label: 'سنوي' },
 ];
 
+const DASHBOARD_SUMMARY_CACHE_KEY = 'dashboard-summary-cache';
+const DASHBOARD_AI_CACHE_KEY = 'dashboard-ai-cache';
+
+let dashboardSummaryCache: {
+    metrics: any;
+    najizSummary: any;
+    najizDetails: any[];
+} | null = null;
+let dashboardAiCache: any | null = null;
+const analyticsCache: Record<string, { debtTrend: any[]; statusDist: any[] }> = {};
+
 const QUICK_ACTIONS = [
     { Icon: Plus, label: 'إضافة قرض جديد', sub: 'تسجيل عميل وقرض', path: '/dashboard/loans/new', color: 'var(--coral)' },
     { Icon: Users, label: 'إدارة العملاء', sub: 'عرض وتعديل البيانات', path: '/dashboard/customers', color: 'var(--info)' },
@@ -221,6 +232,49 @@ export default function DashboardPage() {
         setTimeout(() => setToasts((prev: any[]) => prev.filter((t: any) => t.id !== id)), 6000);
     }, []);
 
+    useEffect(() => {
+        const applySummaryCache = (cache: { metrics: any; najizSummary: any; najizDetails: any[] }) => {
+            setMetrics(cache.metrics ?? null);
+            setNajizSummary(cache.najizSummary ?? null);
+            setNajizDetails(cache.najizDetails ?? []);
+            setLoading(false);
+        };
+
+        if (dashboardSummaryCache) {
+            applySummaryCache(dashboardSummaryCache);
+        } else {
+            try {
+                const cached = sessionStorage.getItem(DASHBOARD_SUMMARY_CACHE_KEY);
+                if (cached) applySummaryCache(JSON.parse(cached));
+            } catch { /* ignore */ }
+        }
+
+        if (dashboardAiCache) {
+            setAiData(dashboardAiCache);
+        } else {
+            try {
+                const cachedAi = sessionStorage.getItem(DASHBOARD_AI_CACHE_KEY);
+                if (cachedAi) setAiData(JSON.parse(cachedAi));
+            } catch { /* ignore */ }
+        }
+    }, []);
+
+    useEffect(() => {
+        if (analyticsCache[chartInterval]) {
+            setDebtTrend(analyticsCache[chartInterval].debtTrend || []);
+            setStatusDist(analyticsCache[chartInterval].statusDist || []);
+            return;
+        }
+        try {
+            const cached = sessionStorage.getItem(`dashboard-analytics-${chartInterval}`);
+            if (cached) {
+                const parsed = JSON.parse(cached);
+                setDebtTrend(parsed.debtTrend || []);
+                setStatusDist(parsed.statusDist || []);
+            }
+        } catch { /* ignore */ }
+    }, [chartInterval]);
+
     const toggleCategory = useCallback((id: string) => {
         setVisibleCategories((prev) => (
             prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
@@ -244,6 +298,14 @@ export default function DashboardPage() {
             setMetrics(m);
             setNajizSummary(dashRes.data?.najizSummary || null);
             setNajizDetails(dashRes.data?.najizDetails || []);
+            dashboardSummaryCache = {
+                metrics: m,
+                najizSummary: dashRes.data?.najizSummary || null,
+                najizDetails: dashRes.data?.najizDetails || [],
+            };
+            try {
+                sessionStorage.setItem(DASHBOARD_SUMMARY_CACHE_KEY, JSON.stringify(dashboardSummaryCache));
+            } catch { /* ignore */ }
 
             // Debt trend
             const analytics = analyticsRes.data || {};
@@ -270,9 +332,20 @@ export default function DashboardPage() {
                 count: parseInt(r.count, 10) || 0
             }));
             setStatusDist(dist);
+            analyticsCache[chartInterval] = { debtTrend: trend, statusDist: dist };
+            try {
+                sessionStorage.setItem(
+                    `dashboard-analytics-${chartInterval}`,
+                    JSON.stringify(analyticsCache[chartInterval])
+                );
+            } catch { /* ignore */ }
 
             // AI
+            dashboardAiCache = aiRes.data || null;
             if (aiRes.data) setAiData(aiRes.data);
+            try {
+                sessionStorage.setItem(DASHBOARD_AI_CACHE_KEY, JSON.stringify(aiRes.data || null));
+            } catch { /* ignore */ }
 
             // Overdue notifications
             const overdueClients = aiRes.data?.overdueClients || [];
