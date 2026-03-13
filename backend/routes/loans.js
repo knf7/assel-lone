@@ -195,7 +195,63 @@ router.post('/upload', authenticateToken, injectMerchantId, checkPermission('can
     const filePath = req.file.path;
     const merchantId = req.merchantId;
     const sheetName = req.body.sheet || null;
-    const overrideDate = req.body.overrideDate || null; // New field for date unification
+    const overrideDate = req.body.overrideDate || null; // Optional override date
+    const calendarRaw = String(req.body.calendar || 'gregorian').toLowerCase();
+    const calendar = ['gregorian', 'hijri'].includes(calendarRaw) ? calendarRaw : 'gregorian';
+    const applyInterest = String(req.body.applyInterest ?? 'true').toLowerCase() === 'true';
+    const profitPercentageRaw = Number(req.body.profitPercentage);
+    const profitPercentage = Number.isFinite(profitPercentageRaw)
+        ? Math.min(100, Math.max(0, profitPercentageRaw))
+        : 0;
+
+    const parseJsonBody = (value, fallback = null, maxLength = 50000) => {
+        if (!value) return fallback;
+        if (typeof value !== 'string' || value.length > maxLength) return fallback;
+        try {
+            return JSON.parse(value);
+        } catch {
+            return fallback;
+        }
+    };
+
+    const ALLOWED_MAP_KEYS = ['nationalId', 'fullName', 'mobileNumber', 'amount', 'receiptNumber', 'date'];
+    const sanitizeColumnMap = (value) => {
+        if (!value || typeof value !== 'object') return null;
+        const safe = {};
+        ALLOWED_MAP_KEYS.forEach((key) => {
+            const mapped = value[key];
+            if (typeof mapped === 'string' && mapped.trim()) {
+                safe[key] = mapped.trim();
+            }
+        });
+        return Object.keys(safe).length > 0 ? safe : null;
+    };
+
+    const sanitizeRowOverrides = (value) => {
+        if (!value || typeof value !== 'object') return {};
+        const safe = {};
+        const rowKeys = Object.keys(value)
+            .filter((key) => /^\d{1,7}$/.test(key))
+            .slice(0, 1000);
+        rowKeys.forEach((rowKey) => {
+            const row = value[rowKey];
+            if (!row || typeof row !== 'object') return;
+            const rowSafe = {};
+            ALLOWED_MAP_KEYS.forEach((key) => {
+                if (row[key] !== undefined && row[key] !== null) {
+                    const val = String(row[key]).trim();
+                    if (val !== '') rowSafe[key] = val;
+                }
+            });
+            if (Object.keys(rowSafe).length > 0) {
+                safe[rowKey] = rowSafe;
+            }
+        });
+        return safe;
+    };
+
+    const columnMap = sanitizeColumnMap(parseJsonBody(req.body.columnMap, null, 20000));
+    const rowOverrides = sanitizeRowOverrides(parseJsonBody(req.body.rowOverrides, {}, 20000));
 
     // ── Column aliases ───────────────────────────────
     const NATIONAL_ID_KEYS = ['رقم الهوية', 'الهوية', 'هوية', 'national_id', 'id', 'ID', 'بطاقة الأحوال', 'السجل المدني', 'رقم السجل'];
@@ -207,6 +263,43 @@ router.post('/upload', authenticateToken, injectMerchantId, checkPermission('can
 
     // Utility function for smart date parsing
     // Utility function for smart date parsing
+    const toEnglishDigits = (input) =>
+        String(input || '').replace(/[٠١٢٣٤٥٦٧٨٩]/g, d => String(d.charCodeAt(0) - 1632));
+
+    const hijriToGregorian = (year, month, day) => {
+        const y = Number(year);
+        const m = Number(month);
+        const d = Number(day);
+        if (!y || !m || !d) return null;
+        const jd = Math.floor((11 * y + 3) / 30) + 354 * y + 30 * m - Math.floor((m - 1) / 2) + d + 1948440 - 385;
+        let l = jd + 68569;
+        let n = Math.floor((4 * l) / 146097);
+        l = l - Math.floor((146097 * n + 3) / 4);
+        let i = Math.floor((4000 * (l + 1)) / 1461001);
+        l = l - Math.floor((1461 * i) / 4) + 31;
+        let j = Math.floor((80 * l) / 2447);
+        const dayOut = l - Math.floor((2447 * j) / 80);
+        l = Math.floor(j / 11);
+        const monthOut = j + 2 - 12 * l;
+        const yearOut = 100 * (n - 49) + i + l;
+        return `${yearOut}-${String(monthOut).padStart(2, '0')}-${String(dayOut).padStart(2, '0')}`;
+    };
+
+    const parseHijriDate = (value) => {
+        if (!value) return null;
+        const raw = toEnglishDigits(value).trim();
+        const parts = raw.split(/[-/]/).map(p => p.trim()).filter(Boolean);
+        if (parts.length === 3) {
+            if (parts[0].length === 4) {
+                return hijriToGregorian(parts[0], parts[1], parts[2]);
+            }
+            if (parts[2].length === 4) {
+                return hijriToGregorian(parts[2], parts[1], parts[0]);
+            }
+        }
+        return null;
+    };
+
     const parseSmartDate = (value) => {
         if (!value) return null;
 
@@ -238,18 +331,39 @@ router.post('/upload', authenticateToken, injectMerchantId, checkPermission('can
             }
         }
 
-        const englishNumbersVal = strVal.replace(/[٠١٢٣٤٥٦٧٨٩]/g, d => d.charCodeAt(0) - 1632);
+        const englishNumbersVal = toEnglishDigits(strVal);
+
+        if (calendar === 'hijri') {
+            const hijriParsed = parseHijriDate(englishNumbersVal);
+            if (hijriParsed) return hijriParsed;
+        }
+
         const parsed = new Date(englishNumbersVal);
         if (!isNaN(parsed.getTime())) {
-            return parsed.toISOString().split('T')[0];
+            const iso = parsed.toISOString().split('T')[0];
+            const year = Number(iso.split('-')[0]);
+            if (calendar === 'gregorian' && year < 1700) return null;
+            return iso;
         }
 
         const parts = englishNumbersVal.split(/[-/]/);
         if (parts.length === 3) {
             if (parts[0].length === 4) {
-                return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+                const iso = `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+                if (calendar === 'gregorian') {
+                    const year = Number(parts[0]);
+                    return year < 1700 ? null : iso;
+                }
+                const hijriMaybe = parseHijriDate(iso);
+                return hijriMaybe || iso;
             } else if (parts[2].length === 4) {
-                return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+                const iso = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+                if (calendar === 'gregorian') {
+                    const year = Number(parts[2]);
+                    return year < 1700 ? null : iso;
+                }
+                const hijriMaybe = parseHijriDate(iso);
+                return hijriMaybe || iso;
             }
         }
 
@@ -268,6 +382,13 @@ router.post('/upload', authenticateToken, injectMerchantId, checkPermission('can
         return null;
     };
 
+    const pickByMap = (obj, fieldKey, aliases) => {
+        if (columnMap && columnMap[fieldKey]) {
+            return obj[columnMap[fieldKey]] ?? null;
+        }
+        return pick(obj, aliases);
+    };
+
     const hasColumn = (headers, keys) => {
         return headers.some((header) => {
             const normalizedHeader = normalize(header);
@@ -277,9 +398,12 @@ router.post('/upload', authenticateToken, injectMerchantId, checkPermission('can
 
     const validateHeaders = (headers) => {
         const missing = [];
-        if (!hasColumn(headers, NATIONAL_ID_KEYS)) missing.push('رقم الهوية');
-        if (!hasColumn(headers, FULL_NAME_KEYS)) missing.push('الاسم');
-        if (!hasColumn(headers, AMOUNT_KEYS)) missing.push('المبلغ');
+        const hasNational = columnMap?.nationalId ? true : hasColumn(headers, NATIONAL_ID_KEYS);
+        const hasFullName = columnMap?.fullName ? true : hasColumn(headers, FULL_NAME_KEYS);
+        const hasAmount = columnMap?.amount ? true : hasColumn(headers, AMOUNT_KEYS);
+        if (!hasNational) missing.push('رقم الهوية');
+        if (!hasFullName) missing.push('الاسم');
+        if (!hasAmount) missing.push('المبلغ');
         return missing;
     };
 
@@ -296,13 +420,20 @@ router.post('/upload', authenticateToken, injectMerchantId, checkPermission('can
 
         batchRows.forEach((r, index) => {
             const rowNumber = startRowOffset + index + 2; // +2 because header row starts at 1
-            const fullName = String(pick(r, FULL_NAME_KEYS) || '').trim();
-            const nationalId = String(pick(r, NATIONAL_ID_KEYS) || '').replace(/\D/g, '');
-            const mobileNumberRaw = String(pick(r, MOBILE_KEYS) || '').replace(/\D/g, '');
-            const amountRaw = pick(r, AMOUNT_KEYS);
-            const amount = Number(String(amountRaw ?? '').replace(/,/g, '').trim());
-            const receiptNumber = String(pick(r, RECEIPT_KEYS) || '').trim() || null;
-            const parsedDate = oDate || parseSmartDate(pick(r, DATE_KEYS)) || new Date().toISOString().split('T')[0];
+            const rowOverride = rowOverrides?.[String(rowNumber)] || {};
+            const fullNameRaw = rowOverride.fullName ?? pickByMap(r, 'fullName', FULL_NAME_KEYS);
+            const nationalIdRaw = rowOverride.nationalId ?? pickByMap(r, 'nationalId', NATIONAL_ID_KEYS);
+            const mobileNumberRaw = rowOverride.mobileNumber ?? pickByMap(r, 'mobileNumber', MOBILE_KEYS);
+            const amountRaw = rowOverride.amount ?? pickByMap(r, 'amount', AMOUNT_KEYS);
+            const receiptRaw = rowOverride.receiptNumber ?? pickByMap(r, 'receiptNumber', RECEIPT_KEYS);
+            const dateRaw = rowOverride.date ?? pickByMap(r, 'date', DATE_KEYS);
+
+            const fullName = String(fullNameRaw || '').trim();
+            const nationalId = String(nationalIdRaw || '').replace(/\D/g, '');
+            const mobileNumber = String(mobileNumberRaw || '').replace(/\D/g, '');
+            const baseAmount = Number(String(amountRaw ?? '').replace(/,/g, '').trim());
+            const receiptNumber = String(receiptRaw || '').trim() || null;
+            const parsedDate = oDate || parseSmartDate(dateRaw) || new Date().toISOString().split('T')[0];
 
             if (!nationalId || !/^\d{10}$/.test(nationalId)) {
                 batchErrors.push({ row: rowNumber, error: 'رقم الهوية يجب أن يكون 10 أرقام' });
@@ -312,7 +443,7 @@ router.post('/upload', authenticateToken, injectMerchantId, checkPermission('can
                 batchErrors.push({ row: rowNumber, error: 'اسم العميل مطلوب' });
                 return;
             }
-            if (!Number.isFinite(amount) || amount <= 0) {
+            if (!Number.isFinite(baseAmount) || baseAmount <= 0) {
                 batchErrors.push({ row: rowNumber, error: 'المبلغ غير صالح' });
                 return;
             }
@@ -321,11 +452,18 @@ router.post('/upload', authenticateToken, injectMerchantId, checkPermission('can
                 return;
             }
 
+            const rate = applyInterest ? profitPercentage : 0;
+            const finalAmount = applyInterest
+                ? Number((baseAmount * (1 + rate / 100)).toFixed(2))
+                : baseAmount;
+
             validatedRows.push({
                 fullName,
                 nationalId,
-                mobileNumber: mobileNumberRaw || '0000000000',
-                amount,
+                mobileNumber: mobileNumber || '0000000000',
+                amount: finalAmount,
+                principalAmount: baseAmount,
+                profitPercentage: rate,
                 receiptNumber,
                 transactionDate: parsedDate
             });
@@ -389,6 +527,8 @@ router.post('/upload', authenticateToken, injectMerchantId, checkPermission('can
             const loanMerchants = [];
             const loanCusts = [];
             const loanAmounts = [];
+            const loanPrincipalAmounts = [];
+            const loanProfitPercentages = [];
             const loanReceipts = [];
             const loanDates = [];
 
@@ -401,16 +541,18 @@ router.post('/upload', authenticateToken, injectMerchantId, checkPermission('can
                 loanMerchants.push(mId);
                 loanCusts.push(customerId);
                 loanAmounts.push(row.amount);
+                loanPrincipalAmounts.push(row.principalAmount);
+                loanProfitPercentages.push(row.profitPercentage);
                 loanReceipts.push(row.receiptNumber);
                 loanDates.push(row.transactionDate);
             }
 
             if (loanCusts.length > 0) {
                 await dbClient.query(
-                    `INSERT INTO loans (merchant_id, customer_id, amount, receipt_number, transaction_date, status)
-                     SELECT m, c, a, r, d::date, 'Active'
-                     FROM UNNEST($1::uuid[], $2::uuid[], $3::numeric[], $4::text[], $5::text[]) AS t(m, c, a, r, d)`,
-                    [loanMerchants, loanCusts, loanAmounts, loanReceipts, loanDates]
+                    `INSERT INTO loans (merchant_id, customer_id, amount, principal_amount, profit_percentage, receipt_number, transaction_date, status)
+                     SELECT m, c, a, p, pr, r, d::date, 'Active'
+                     FROM UNNEST($1::uuid[], $2::uuid[], $3::numeric[], $4::numeric[], $5::numeric[], $6::text[], $7::text[]) AS t(m, c, a, p, pr, r, d)`,
+                    [loanMerchants, loanCusts, loanAmounts, loanPrincipalAmounts, loanProfitPercentages, loanReceipts, loanDates]
                 );
             }
 
@@ -439,6 +581,7 @@ router.post('/upload', authenticateToken, injectMerchantId, checkPermission('can
         const allErrors = [];
         const BATCH_SIZE = 5000;
         let currentBatch = [];
+        const normalizedOverrideDate = overrideDate ? parseSmartDate(overrideDate) : null;
 
         const isCsv = req.file.mimetype === 'text/csv' || req.file.originalname.toLowerCase().endsWith('.csv');
 
@@ -460,7 +603,7 @@ router.post('/upload', authenticateToken, injectMerchantId, checkPermission('can
                     if (currentBatch.length >= BATCH_SIZE) {
                         stream.pause();
                         try {
-                            const res = await processBatch(currentBatch, merchantId, overrideDate, totalProcessed - BATCH_SIZE);
+                            const res = await processBatch(currentBatch, merchantId, normalizedOverrideDate, totalProcessed - BATCH_SIZE);
                             totalSuccess += res.success;
                             if (res.errors) allErrors.push(...res.errors);
                             currentBatch = [];
@@ -473,7 +616,7 @@ router.post('/upload', authenticateToken, injectMerchantId, checkPermission('can
                 stream.on('end', async () => {
                     try {
                         if (currentBatch.length > 0) {
-                            const res = await processBatch(currentBatch, merchantId, overrideDate, totalProcessed - currentBatch.length);
+                            const res = await processBatch(currentBatch, merchantId, normalizedOverrideDate, totalProcessed - currentBatch.length);
                             totalSuccess += res.success;
                             if (res.errors) allErrors.push(...res.errors);
                         }
@@ -513,7 +656,7 @@ router.post('/upload', authenticateToken, injectMerchantId, checkPermission('can
             });
             for (let i = 0; i < wsRows.length; i += BATCH_SIZE) {
                 const batch = wsRows.slice(i, i + BATCH_SIZE);
-                const res = await processBatch(batch, merchantId, overrideDate, i);
+                const res = await processBatch(batch, merchantId, normalizedOverrideDate, i);
                 totalSuccess += res.success;
                 if (res.errors) allErrors.push(...res.errors);
             }

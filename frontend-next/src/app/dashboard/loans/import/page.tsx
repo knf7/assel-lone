@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx';
 import { loansAPI } from '@/lib/api';
@@ -19,10 +19,27 @@ const COLUMN_MAP = {
     date: ['التاريخ', 'تاريخ', 'date', 'transaction_date', 'تاريخ المعاملة']
 };
 
+type FieldKey = keyof typeof COLUMN_MAP;
+
+const FIELD_LABELS: Record<FieldKey, string> = {
+    nationalId: 'رقم الهوية',
+    fullName: 'الاسم',
+    mobileNumber: 'الجوال',
+    amount: 'المبلغ',
+    receiptNumber: 'رقم السند',
+    date: 'التاريخ'
+};
+
+const REQUIRED_FIELDS: FieldKey[] = ['nationalId', 'fullName', 'amount'];
+
 function findColumn(row: any, candidates: string[]) {
     const keys = Object.keys(row);
     for (const cand of candidates) {
-        const found = keys.find(k => k.trim().toLowerCase() === cand.trim().toLowerCase());
+        const candNorm = cand.trim().toLowerCase();
+        const found = keys.find(k => {
+            const keyNorm = k.trim().toLowerCase();
+            return keyNorm === candNorm || keyNorm.includes(candNorm);
+        });
         if (found !== undefined) return found;
     }
     return null;
@@ -59,15 +76,48 @@ export default function ExcelUploadPage() {
 
     const [unifyDate, setUnifyDate] = useState(false);
     const [customDate, setCustomDate] = useState(new Date().toISOString().split('T')[0]);
+    const [calendarType, setCalendarType] = useState<'gregorian' | 'hijri'>('gregorian');
+    const [applyInterest, setApplyInterest] = useState(true);
+    const [profitPercentage, setProfitPercentage] = useState(30);
+    const [columnMap, setColumnMap] = useState<Record<FieldKey, string>>({
+        nationalId: '',
+        fullName: '',
+        mobileNumber: '',
+        amount: '',
+        receiptNumber: '',
+        date: ''
+    });
+    const [rowEdits, setRowEdits] = useState<Record<string, Partial<Record<FieldKey, string>>>>({});
+    const missingRequired = useMemo(
+        () => REQUIRED_FIELDS.filter((field) => !columnMap[field]),
+        [columnMap]
+    );
+    const missingRequiredLabels = useMemo(
+        () => missingRequired.map((field) => FIELD_LABELS[field]),
+        [missingRequired]
+    );
 
     const isPremium = true; // For now assuming true or we can check via API/Localstorage
 
     const parseSheet = useCallback((wb: XLSX.WorkBook, sheetName: string) => {
         const sheet = wb.Sheets[sheetName];
         const raw = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-        setRowCount(raw.length);
-        setHeaders(raw.length > 0 ? Object.keys(raw[0] as any) : []);
-        setPreview(raw.slice(0, 8));
+        const normalized = raw.map((row: any, idx: number) => ({
+            ...row,
+            __rowNum__: typeof row.__rowNum__ === 'number' ? row.__rowNum__ + 1 : idx + 2
+        }));
+        setRowCount(normalized.length);
+        const headerList = normalized.length > 0 ? Object.keys(normalized[0]).filter(k => k !== '__rowNum__') : [];
+        setHeaders(headerList);
+        setPreview(normalized.slice(0, 8));
+
+        const defaults: Record<FieldKey, string> = { ...columnMap };
+        (Object.keys(COLUMN_MAP) as FieldKey[]).forEach((key) => {
+            const found = normalized[0] ? findColumn(normalized[0], COLUMN_MAP[key]) : null;
+            defaults[key] = found || '';
+        });
+        setColumnMap(defaults);
+        setRowEdits({});
     }, []);
 
     const processFile = useCallback((f: File) => {
@@ -112,11 +162,16 @@ export default function ExcelUploadPage() {
         setFile(null); setSheets([]); setSelected(''); setWorkbook(null);
         setPreview([]); setHeaders([]); setRowCount(0); setResult(null);
         setError(''); setProgress(0);
+        setRowEdits({});
         if (fileRef.current) fileRef.current.value = '';
     };
 
     const handleImport = async () => {
         if (!file) return;
+        if (missingRequired.length > 0) {
+            setError(`يرجى تحديد الأعمدة المطلوبة أولاً: ${missingRequiredLabels.join('، ')}`);
+            return;
+        }
         setLoading(true);
         setError('');
         setResult(null);
@@ -127,6 +182,13 @@ export default function ExcelUploadPage() {
             formData.append('file', file);
             if (selectedSheet) formData.append('sheet', selectedSheet);
             if (unifyDate) formData.append('overrideDate', customDate);
+            formData.append('calendar', calendarType);
+            formData.append('applyInterest', applyInterest ? 'true' : 'false');
+            formData.append('profitPercentage', String(profitPercentage));
+            formData.append('columnMap', JSON.stringify(columnMap));
+            if (Object.keys(rowEdits).length > 0) {
+                formData.append('rowOverrides', JSON.stringify(rowEdits));
+            }
 
             const timer = setInterval(() => setProgress(p => p < 90 ? p + 10 : p), 500);
 
@@ -251,30 +313,69 @@ export default function ExcelUploadPage() {
                             />
                         </div>
                     )}
+
+                    <div className="import-settings-row">
+                        <div className="import-setting">
+                            <label className="section-label">نوع التقويم</label>
+                            <select value={calendarType} onChange={(e) => setCalendarType(e.target.value as 'gregorian' | 'hijri')}>
+                                <option value="gregorian">ميلادي</option>
+                                <option value="hijri">هجري (سيتم التحويل للميلادي)</option>
+                            </select>
+                        </div>
+                        <div className="import-setting">
+                            <label className="section-label">تطبيق الفائدة</label>
+                            <label className="inline-toggle">
+                                <input
+                                    type="checkbox"
+                                    checked={applyInterest}
+                                    onChange={(e) => setApplyInterest(e.target.checked)}
+                                />
+                                <span>تفعيل الفائدة تلقائياً</span>
+                            </label>
+                        </div>
+                        <div className="import-setting">
+                            <label className="section-label">نسبة الفائدة %</label>
+                            <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={profitPercentage}
+                                onChange={(e) => setProfitPercentage(Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                                disabled={!applyInterest}
+                            />
+                        </div>
+                    </div>
                 </div>
             )}
 
             {preview.length > 0 && (
                 <div className="col-map-card glass-card fade-up">
-                    <p className="section-label">اكتشاف الأعمدة تلقائياً</p>
-                    <div className="col-chips">
-                        {Object.entries(COLUMN_MAP).map(([key, candidates]) => {
-                            const found = preview[0] ? findColumn(preview[0], candidates) : null;
-                            return (
-                                <div key={key} className={`col-chip ${found ? 'found' : 'missing'}`}>
-                                    {found ? <IconCheck size={13} /> : <IconX size={13} />}
-                                    <span>{
-                                        key === 'nationalId' ? 'رقم الهوية' :
-                                            key === 'fullName' ? 'الاسم' :
-                                                key === 'mobileNumber' ? 'الجوال' :
-                                                    key === 'amount' ? 'المبلغ' :
-                                                        key === 'receiptNumber' ? 'رقم السند' : 'التاريخ'
-                                    }</span>
-                                    {found && <span className="col-found-label">{found}</span>}
-                                </div>
-                            );
-                        })}
+                    <p className="section-label">مطابقة الأعمدة</p>
+                    <div className="map-grid">
+                        {(Object.keys(COLUMN_MAP) as FieldKey[]).map((key) => (
+                            <div key={key} className="map-row">
+                                <label className={`map-label ${REQUIRED_FIELDS.includes(key) ? 'required' : ''}`}>
+                                    {FIELD_LABELS[key]}
+                                </label>
+                                <select
+                                    className="map-select"
+                                    value={columnMap[key] || ''}
+                                    onChange={(e) => setColumnMap(prev => ({ ...prev, [key]: e.target.value }))}
+                                >
+                                    <option value="">بدون</option>
+                                    {headers.map((h) => (
+                                        <option key={h} value={h}>{h}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        ))}
                     </div>
+                    {missingRequired.length > 0 && (
+                        <div className="map-warning">
+                            <IconAlertTriangle size={16} />
+                            <span>الحقول المطلوبة غير محددة: {missingRequiredLabels.join('، ')}</span>
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -285,16 +386,41 @@ export default function ExcelUploadPage() {
                         <span className="preview-badge">أول 8 صفوف من أصل {rowCount}</span>
                     </div>
                     <div className="table-scroll">
-                        <table className="preview-table">
+                        <table className="preview-table preview-edit-table">
                             <thead>
-                                <tr>{headers.map(h => <th key={h}>{h}</th>)}</tr>
+                                <tr>
+                                    <th>#</th>
+                                    {(Object.keys(COLUMN_MAP) as FieldKey[]).map((key) => (
+                                        <th key={key}>{FIELD_LABELS[key]}</th>
+                                    ))}
+                                </tr>
                             </thead>
                             <tbody>
                                 {preview.map((row, i) => (
                                     <tr key={i}>
-                                        {headers.map(h => (
-                                            <td key={h}>{String(row[h] ?? '')}</td>
-                                        ))}
+                                        <td className="preview-rownum">{row.__rowNum__ || i + 2}</td>
+                                        {(Object.keys(COLUMN_MAP) as FieldKey[]).map((key) => {
+                                            const rowNumber = String(row.__rowNum__ || i + 2);
+                                            const mappedKey = columnMap[key] || '';
+                                            const rawValue = mappedKey ? row[mappedKey] : '';
+                                            const overrideValue = rowEdits[rowNumber]?.[key];
+                                            const displayValue = overrideValue !== undefined ? overrideValue : (rawValue ?? '');
+                                            return (
+                                                <td key={key}>
+                                                    <input
+                                                        className="preview-input"
+                                                        value={String(displayValue)}
+                                                        onChange={(e) => setRowEdits(prev => ({
+                                                            ...prev,
+                                                            [rowNumber]: {
+                                                                ...prev[rowNumber],
+                                                                [key]: e.target.value
+                                                            }
+                                                        }))}
+                                                    />
+                                                </td>
+                                            );
+                                        })}
                                     </tr>
                                 ))}
                             </tbody>
@@ -334,7 +460,7 @@ export default function ExcelUploadPage() {
                     <button
                         className="btn btn-primary btn-import"
                         onClick={handleImport}
-                        disabled={loading || preview.length === 0}
+                        disabled={loading || preview.length === 0 || missingRequired.length > 0}
                     >
                         {loading ? (
                             <>

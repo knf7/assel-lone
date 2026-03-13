@@ -208,6 +208,40 @@
     box-shadow: 0 4px 12px rgba(96, 165, 250, 0.3);
 }
 
+/* ── Import Settings ────────────────────────── */
+.import-settings-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.import-setting {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.import-setting select,
+.import-setting input[type="number"] {
+    min-height: 42px;
+    border-radius: 10px;
+    border: 1px solid var(--glass-border);
+    background: var(--glass-bg);
+    color: var(--text-primary);
+    padding: 8px 12px;
+    font-weight: 600;
+}
+
+.inline-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
 /* ── Column Chips ────────────────────────────── */
 .col-map-card {
     padding: 20px;
@@ -215,43 +249,51 @@
     margin-bottom: 24px;
 }
 
-.col-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
+.map-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px;
     margin-top: 12px;
 }
 
-.col-chip {
+.map-row {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.map-label {
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--text-secondary);
+}
+
+.map-label.required {
+    color: var(--text-primary);
+}
+
+.map-select {
+    min-height: 42px;
+    border-radius: 10px;
+    border: 1px solid var(--glass-border);
+    background: var(--glass-bg);
+    color: var(--text-primary);
+    padding: 6px 10px;
+    font-weight: 700;
+}
+
+.map-warning {
+    margin-top: 12px;
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    border-radius: 8px;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.25);
+    color: #b45309;
     font-size: 12px;
-    font-weight: 600;
-    border: 1px solid transparent;
-}
-
-.col-chip.found {
-    background: rgba(34, 197, 94, 0.1);
-    color: #22C55E;
-    border-color: rgba(34, 197, 94, 0.2);
-}
-
-.col-chip.missing {
-    background: rgba(239, 68, 68, 0.08);
-    color: #EF4444;
-    border-color: rgba(239, 68, 68, 0.15);
-    opacity: 0.7;
-}
-
-.col-found-label {
-    background: rgba(255, 255, 255, 0.2);
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-size: 10px;
-    opacity: 0.9;
+    font-weight: 700;
 }
 
 /* ── Preview Table ───────────────────────────── */
@@ -287,7 +329,7 @@
 .preview-table {
     width: 100%;
     border-collapse: collapse;
-    min-width: 600px;
+    min-width: 780px;
 }
 
 .preview-table th {
@@ -305,6 +347,27 @@
     font-size: 13px;
     color: var(--text-secondary);
     border-top: 1px solid var(--glass-border);
+}
+
+.preview-edit-table th,
+.preview-edit-table td {
+    text-align: center;
+}
+
+.preview-rownum {
+    font-weight: 800;
+    color: var(--text-primary);
+}
+
+.preview-input {
+    width: 100%;
+    min-width: 120px;
+    border: 1px solid var(--glass-border);
+    background: var(--glass-bg);
+    border-radius: 8px;
+    padding: 6px 8px;
+    color: var(--text-primary);
+    font-weight: 600;
 }
 
 /* ── Progress Bar ────────────────────────────── */
