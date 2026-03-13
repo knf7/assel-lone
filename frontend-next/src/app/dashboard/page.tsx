@@ -2,12 +2,12 @@
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     AreaChart, Area, PieChart, Pie, Cell,
     XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
-import { loansAPI, reportsAPI } from '@/lib/api';
+import { loansAPI, reportsAPI, DASHBOARD_DIRTY_KEY } from '@/lib/api';
 import {
     DollarSign, Users, Calendar, CheckCircle2, AlertTriangle,
     TrendingUp, TrendingDown, Download, Plus, Rocket,
@@ -236,6 +236,7 @@ const FreeTrialBanner = React.memo(function FreeTrialBanner({ expiryDate }: { ex
 // ─── Main Dashboard ────────────────────────────
 export default function DashboardPage() {
     const router = useRouter();
+    const queryClient = useQueryClient();
     const [chartInterval, setChartInterval] = useState('week');
     const [toasts, setToasts] = useState<any[]>([]);
     const [merchant, setMerchant] = useState<any>({});
@@ -362,6 +363,18 @@ export default function DashboardPage() {
             }
         };
     }, [enableHeavyFetch]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        try {
+            const dirty = localStorage.getItem(DASHBOARD_DIRTY_KEY);
+            if (!dirty) return;
+            localStorage.removeItem(DASHBOARD_DIRTY_KEY);
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+            setEnableHeavyFetch(true);
+            summaryQuery.refetch();
+        } catch { /* ignore */ }
+    }, [queryClient, summaryQuery]);
 
     const toggleCategory = useCallback((id: string) => {
         setVisibleCategories((prev) => (

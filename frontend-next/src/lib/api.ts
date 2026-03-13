@@ -3,6 +3,7 @@ import axios from 'axios';
 const API_CACHE_PREFIX = 'api-cache:';
 const API_CACHE_TTL_MS = 1000 * 120;
 const memoryCache = new Map<string, { data: any; savedAt: number }>();
+export const DASHBOARD_DIRTY_KEY = 'dashboard-dirty';
 
 const getMerchantCacheTag = () => {
     if (typeof window === 'undefined') return 'server';
@@ -83,6 +84,7 @@ const clearDashboardCache = () => {
     try {
         clearStore(sessionStorage);
         clearStore(localStorage);
+        localStorage.setItem(DASHBOARD_DIRTY_KEY, String(Date.now()));
     } catch { /* ignore */ }
 };
 
