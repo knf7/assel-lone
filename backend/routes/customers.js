@@ -137,6 +137,16 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
         const limitNumber = Math.min(100, parseInt(limit, 10) || 20);
         const offset = (pageNumber - 1) * limitNumber;
         const isMockedDb = Boolean(req.dbClient?.query?._isMockFunction);
+        const resetRlsTransaction = async () => {
+            if (!req.dbClient?.query || !req.dbClient?.release) return;
+            try {
+                await req.dbClient.query('ROLLBACK');
+                await req.dbClient.query('BEGIN');
+                await req.dbClient.query('SET LOCAL app.merchant_id = $1', [req.merchantId]);
+            } catch (err) {
+                console.warn('RLS reset failed:', err?.message || err);
+            }
+        };
         let hasRatingsTable = false;
         if (process.env.NODE_ENV !== 'test' && !isMockedDb) {
             hasRatingsTable = await resolveRatingsTable(req.dbClient);
@@ -177,6 +187,7 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
             totalCount = parseInt(countResult.rows[0].count);
         } catch (err) {
             console.warn('Customers count fallback:', err?.message || err);
+            await resetRlsTransaction();
             const fallbackResult = await req.dbClient.query(
                 `SELECT COUNT(*) FROM customers c WHERE ${whereClauseFallback}`,
                 params
@@ -248,6 +259,7 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
             );
         } catch (err) {
             console.warn('Customers query fallback:', err?.message || err);
+            await resetRlsTransaction();
             result = await req.dbClient.query(
                 buildQuery(false, whereClauseFallback),
                 [...params, limitNumber, offset]
