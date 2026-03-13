@@ -610,22 +610,44 @@ router.get('/', checkPermission('can_view_loans'), async (req, res) => {
             }
         }
 
+        const hasSearch = Boolean(search);
+        const countQuery = hasSearch
+            ? `SELECT COUNT(*) FROM loans l LEFT JOIN customers c ON l.customer_id = c.id WHERE ${where}`
+            : `SELECT COUNT(*) FROM loans l WHERE ${where}`;
+        const dataQuery = hasSearch
+            ? `SELECT l.id, l.amount, l.principal_amount, l.profit_percentage, l.receipt_number, l.receipt_image_url,
+                      l.status, l.transaction_date, l.created_at, l.notes,
+                      c.id AS customer_id, c.full_name AS customer_name,
+                      c.national_id, c.mobile_number,
+                      l.najiz_case_number, l.najiz_case_amount, l.najiz_status,
+                      l.najiz_collected_amount, l.is_najiz_case,
+                      l.najiz_plaintiff_name, l.najiz_plaintiff_national_id, l.najiz_raised_date
+               FROM loans l LEFT JOIN customers c ON l.customer_id = c.id
+               WHERE ${where}
+               ORDER BY l.created_at DESC
+               LIMIT $${i} OFFSET $${i + 1}`
+            : `WITH base AS (
+                   SELECT l.id, l.amount, l.principal_amount, l.profit_percentage, l.receipt_number, l.receipt_image_url,
+                          l.status, l.transaction_date, l.created_at, l.notes,
+                          l.customer_id,
+                          l.najiz_case_number, l.najiz_case_amount, l.najiz_status,
+                          l.najiz_collected_amount, l.is_najiz_case,
+                          l.najiz_plaintiff_name, l.najiz_plaintiff_national_id, l.najiz_raised_date
+                   FROM loans l
+                   WHERE ${where}
+                   ORDER BY l.created_at DESC
+                   LIMIT $${i} OFFSET $${i + 1}
+               )
+               SELECT base.*,
+                      c.id AS customer_id, c.full_name AS customer_name,
+                      c.national_id, c.mobile_number
+               FROM base
+               LEFT JOIN customers c ON base.customer_id = c.id
+               ORDER BY base.created_at DESC`;
+
         const [countRes, dataRes] = await Promise.all([
-            req.dbClient.query(`SELECT COUNT(*) FROM loans l LEFT JOIN customers c ON l.customer_id = c.id WHERE ${where}`, params),
-            req.dbClient.query(
-                `SELECT l.id, l.amount, l.principal_amount, l.profit_percentage, l.receipt_number, l.receipt_image_url,
-                        l.status, l.transaction_date, l.created_at, l.notes,
-                        c.id AS customer_id, c.full_name AS customer_name,
-                        c.national_id, c.mobile_number,
-                        l.najiz_case_number, l.najiz_case_amount, l.najiz_status,
-                        l.najiz_collected_amount, l.is_najiz_case,
-                        l.najiz_plaintiff_name, l.najiz_plaintiff_national_id, l.najiz_raised_date
-                 FROM loans l LEFT JOIN customers c ON l.customer_id = c.id
-                 WHERE ${where}
-                 ORDER BY l.created_at DESC
-                 LIMIT $${i} OFFSET $${i + 1}`,
-                [...params, limitNumber, offset]
-            )
+            req.dbClient.query(countQuery, params),
+            req.dbClient.query(dataQuery, [...params, limitNumber, offset])
         ]);
 
         const totalCount = parseInt(countRes.rows[0].count);

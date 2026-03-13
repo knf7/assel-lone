@@ -113,6 +113,7 @@ CREATE TABLE customers (
 CREATE INDEX idx_customers_merchant_id ON customers(merchant_id);
 CREATE INDEX idx_customers_national_id ON customers(merchant_id, national_id);
 CREATE INDEX idx_customers_mobile ON customers(mobile_number);
+CREATE INDEX idx_customers_merchant_created_active ON customers(merchant_id, created_at DESC) WHERE deleted_at IS NULL;
 
 -- =====================================================
 -- TABLE: loans (Transaction Ledger)
@@ -160,6 +161,8 @@ CREATE INDEX idx_loans_customer_id ON loans(customer_id);
 CREATE INDEX idx_loans_status ON loans(status);
 CREATE INDEX idx_loans_transaction_date ON loans(transaction_date DESC);
 CREATE INDEX idx_loans_merchant_status ON loans(merchant_id, status);
+CREATE INDEX idx_loans_merchant_created_active ON loans(merchant_id, created_at DESC) WHERE deleted_at IS NULL;
+CREATE INDEX idx_loans_merchant_status_created_active ON loans(merchant_id, status, created_at DESC) WHERE deleted_at IS NULL;
 
 -- =====================================================
 -- TABLE: payment_history (Audit Trail)

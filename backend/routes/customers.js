@@ -175,47 +175,57 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
         // Get customers with total debt
         const result = await req.dbClient.query(
             hasRatingsTable
-                ? `SELECT c.*, 
-              COALESCE(SUM(CASE WHEN l.status = 'Active' AND l.deleted_at IS NULL THEN l.amount ELSE 0 END), 0) as total_debt,
-              COALESCE(COUNT(l.id) FILTER (WHERE l.deleted_at IS NULL), 0) as total_loans,
-              COALESCE(COUNT(l.id) FILTER (WHERE l.deleted_at IS NULL AND l.status = 'Paid'), 0) as paid_loans,
-              COALESCE(COUNT(l.id) FILTER (WHERE l.deleted_at IS NULL AND l.status = 'Raised'), 0) as raised_loans,
-              COALESCE(COUNT(l.id) FILTER (WHERE l.deleted_at IS NULL AND l.status = 'Active'), 0) as active_loans,
-              rating_agg.delivery_avg,
-              rating_agg.monthly_avg,
-              rating_agg.overall_score
-       FROM customers c
-       LEFT JOIN loans l ON c.id = l.customer_id
-       LEFT JOIN LATERAL (
-         SELECT
-           ROUND(COALESCE(AVG(cr.score) FILTER (WHERE cr.rating_scope = 'delivery'), 0)::numeric, 1) AS delivery_avg,
-           ROUND(COALESCE(AVG(cr.score) FILTER (WHERE cr.rating_scope = 'monthly'), 0)::numeric, 1) AS monthly_avg,
-           ROUND((
-             COALESCE(AVG(cr.score) FILTER (WHERE cr.rating_scope = 'delivery'), 0) * 0.6
-             + COALESCE(AVG(cr.score) FILTER (WHERE cr.rating_scope = 'monthly'), 0) * 0.4
-           )::numeric, 1) AS overall_score
-         FROM customer_ratings cr
-         WHERE cr.merchant_id = c.merchant_id AND cr.customer_id = c.id
-       ) rating_agg ON true
-       WHERE ${whereClause}
-       GROUP BY c.id, rating_agg.delivery_avg, rating_agg.monthly_avg, rating_agg.overall_score
-       ORDER BY c.created_at DESC
-       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`
-                : `SELECT c.*, 
-              COALESCE(SUM(CASE WHEN l.status = 'Active' AND l.deleted_at IS NULL THEN l.amount ELSE 0 END), 0) as total_debt,
-              COALESCE(COUNT(l.id) FILTER (WHERE l.deleted_at IS NULL), 0) as total_loans,
-              COALESCE(COUNT(l.id) FILTER (WHERE l.deleted_at IS NULL AND l.status = 'Paid'), 0) as paid_loans,
-              COALESCE(COUNT(l.id) FILTER (WHERE l.deleted_at IS NULL AND l.status = 'Raised'), 0) as raised_loans,
-              COALESCE(COUNT(l.id) FILTER (WHERE l.deleted_at IS NULL AND l.status = 'Active'), 0) as active_loans,
-              0::numeric AS delivery_avg,
-              0::numeric AS monthly_avg,
-              0::numeric AS overall_score
-       FROM customers c
-       LEFT JOIN loans l ON c.id = l.customer_id
-       WHERE ${whereClause}
-       GROUP BY c.id
-       ORDER BY c.created_at DESC
-       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+                ? `WITH base AS (
+                     SELECT c.*
+                     FROM customers c
+                     WHERE ${whereClause}
+                     ORDER BY c.created_at DESC
+                     LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+                   )
+                   SELECT base.*,
+                          COALESCE(SUM(CASE WHEN l.status = 'Active' AND l.deleted_at IS NULL THEN l.amount ELSE 0 END), 0) as total_debt,
+                          COALESCE(COUNT(l.id) FILTER (WHERE l.deleted_at IS NULL), 0) as total_loans,
+                          COALESCE(COUNT(l.id) FILTER (WHERE l.deleted_at IS NULL AND l.status = 'Paid'), 0) as paid_loans,
+                          COALESCE(COUNT(l.id) FILTER (WHERE l.deleted_at IS NULL AND l.status = 'Raised'), 0) as raised_loans,
+                          COALESCE(COUNT(l.id) FILTER (WHERE l.deleted_at IS NULL AND l.status = 'Active'), 0) as active_loans,
+                          rating_agg.delivery_avg,
+                          rating_agg.monthly_avg,
+                          rating_agg.overall_score
+                   FROM base
+                   LEFT JOIN loans l ON base.id = l.customer_id AND l.merchant_id = base.merchant_id
+                   LEFT JOIN LATERAL (
+                     SELECT
+                       ROUND(COALESCE(AVG(cr.score) FILTER (WHERE cr.rating_scope = 'delivery'), 0)::numeric, 1) AS delivery_avg,
+                       ROUND(COALESCE(AVG(cr.score) FILTER (WHERE cr.rating_scope = 'monthly'), 0)::numeric, 1) AS monthly_avg,
+                       ROUND((
+                         COALESCE(AVG(cr.score) FILTER (WHERE cr.rating_scope = 'delivery'), 0) * 0.6
+                         + COALESCE(AVG(cr.score) FILTER (WHERE cr.rating_scope = 'monthly'), 0) * 0.4
+                       )::numeric, 1) AS overall_score
+                     FROM customer_ratings cr
+                     WHERE cr.merchant_id = base.merchant_id AND cr.customer_id = base.id
+                   ) rating_agg ON true
+                   GROUP BY base.id, rating_agg.delivery_avg, rating_agg.monthly_avg, rating_agg.overall_score
+                   ORDER BY base.created_at DESC`
+                : `WITH base AS (
+                     SELECT c.*
+                     FROM customers c
+                     WHERE ${whereClause}
+                     ORDER BY c.created_at DESC
+                     LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+                   )
+                   SELECT base.*,
+                          COALESCE(SUM(CASE WHEN l.status = 'Active' AND l.deleted_at IS NULL THEN l.amount ELSE 0 END), 0) as total_debt,
+                          COALESCE(COUNT(l.id) FILTER (WHERE l.deleted_at IS NULL), 0) as total_loans,
+                          COALESCE(COUNT(l.id) FILTER (WHERE l.deleted_at IS NULL AND l.status = 'Paid'), 0) as paid_loans,
+                          COALESCE(COUNT(l.id) FILTER (WHERE l.deleted_at IS NULL AND l.status = 'Raised'), 0) as raised_loans,
+                          COALESCE(COUNT(l.id) FILTER (WHERE l.deleted_at IS NULL AND l.status = 'Active'), 0) as active_loans,
+                          0::numeric AS delivery_avg,
+                          0::numeric AS monthly_avg,
+                          0::numeric AS overall_score
+                   FROM base
+                   LEFT JOIN loans l ON base.id = l.customer_id AND l.merchant_id = base.merchant_id
+                   GROUP BY base.id
+                   ORDER BY base.created_at DESC`,
             [...params, limitNumber, offset]
         );
 
