@@ -52,10 +52,19 @@ export default function CustomersPage() {
             if (requestPage > 1) {
                 customersAPI.prefetchAll({ ...params, page: requestPage - 1 });
             }
-        } catch {
+        } catch (err: any) {
             setCustomers([]);
             setTotalPages(1);
-            setErrorMsg('تعذر الاتصال بالخادم. تحقق من إعدادات الـ API أو أعد المحاولة.');
+            const status = err?.response?.status;
+            if (status === 401) {
+                setErrorMsg('انتهت الجلسة. الرجاء تسجيل الدخول من جديد.');
+            } else if (status === 403) {
+                setErrorMsg('غير مصرح. تأكد من صلاحيات الحساب أو الاشتراك.');
+            } else if (status >= 500) {
+                setErrorMsg('خطأ في الخادم. حاول مرة أخرى بعد قليل.');
+            } else {
+                setErrorMsg('تعذر الاتصال بالخادم. تحقق من إعدادات الـ API أو أعد المحاولة.');
+            }
         }
         finally { setLoading(false); }
     }, [page, deferredSearch, customers.length]);

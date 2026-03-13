@@ -188,6 +188,15 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
   }, []);
 
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const token = localStorage.getItem('token');
+    if (!token && pathname !== '/login') {
+      toast.error('انتهت الجلسة، الرجاء تسجيل الدخول مجدداً.');
+      router.replace('/login');
+    }
+  }, [pathname, router]);
+
+  useEffect(() => {
     const onEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setMobileOpen(false);
     };
