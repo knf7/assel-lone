@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { loansAPI, customersAPI } from '@/lib/api';
 import { toast } from 'sonner';
@@ -14,8 +14,12 @@ import './loans.css';
 const LoansPage = () => {
     const router = useRouter();
     const searchParams = useSearchParams();
-    const [loans, setLoans] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+    const initialCache = useMemo(
+        () => loansAPI.peekAll({ page: 1, limit: 20 }),
+        []
+    );
+    const [loans, setLoans] = useState<any[]>(() => initialCache?.loans || []);
+    const [loading, setLoading] = useState(!initialCache);
     const [filters, setFilters] = useState({
         search: '',
         status: '',
@@ -24,9 +28,9 @@ const LoansPage = () => {
         delayed: false
     });
     const [pagination, setPagination] = useState({
-        page: 1,
-        limit: 20,
-        totalPages: 1
+        page: initialCache?.pagination?.page ?? 1,
+        limit: initialCache?.pagination?.limit ?? 20,
+        totalPages: initialCache?.pagination?.totalPages ?? 1
     });
     const [showImportModal, setShowImportModal] = useState(false);
     const [editingLoan, setEditingLoan] = useState<any>(null);
@@ -47,13 +51,25 @@ const LoansPage = () => {
 
     const fetchLoans = useCallback(async (pageOverride?: number) => {
         try {
-            setLoading(true);
             const requestPage = pageOverride ?? pagination.page;
-            const response = await loansAPI.getAll({
+            const params = {
                 ...filters,
                 page: requestPage,
                 limit: pagination.limit
-            });
+            };
+            const cached = loansAPI.peekAll(params);
+            if (cached) {
+                setLoans(cached.loans || []);
+                setPagination(prev => ({
+                    ...prev,
+                    page: requestPage,
+                    totalPages: cached.pagination?.totalPages ?? prev.totalPages
+                }));
+                setLoading(false);
+            } else if (loans.length === 0) {
+                setLoading(true);
+            }
+            const response = await loansAPI.getAll(params);
             const data = response.data || response;
             setLoans(data.loans || []);
             setPagination(prev => ({
@@ -66,7 +82,7 @@ const LoansPage = () => {
         } finally {
             setLoading(false);
         }
-    }, [filters, pagination.limit, pagination.page]);
+    }, [filters, pagination.limit, pagination.page, loans.length]);
 
     useEffect(() => {
         fetchLoans();

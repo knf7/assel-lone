@@ -51,6 +51,11 @@ const writeCached = (key: string, data: any) => {
     } catch { /* ignore */ }
 };
 
+const peekCached = (url: string, config: any = {}) => {
+    const key = buildCacheKey(url, config?.params);
+    return readCached(key);
+};
+
 const clearCacheByPrefix = (urlPrefix: string) => {
     const matcher = `::${urlPrefix}`;
     memoryCache.forEach((_value, key) => {
@@ -145,6 +150,7 @@ api.interceptors.response.use(
 
 export const loansAPI = {
     getAll: (params: any) => cachedGet('/loans', { params }),
+    peekAll: (params: any) => peekCached('/loans', { params }),
     getById: (id: string) => cachedGet(`/loans/${id}`),
     create: async (data: any) => {
         const res = await api.post('/loans', data);
@@ -204,6 +210,7 @@ export const loansAPI = {
 
 export const customersAPI = {
     getAll: (params: any) => cachedGet('/customers', { params }),
+    peekAll: (params: any) => peekCached('/customers', { params }),
     getById: (id: string) => cachedGet(`/customers/${id}`),
     getRatings: (id: string, params?: any) => cachedGet(`/customers/${id}/ratings`, { params }),
     saveRating: async (id: string, data: any) => {

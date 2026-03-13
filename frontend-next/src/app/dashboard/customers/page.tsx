@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { customersAPI } from '@/lib/api';
 import { toast } from 'sonner';
@@ -9,23 +9,35 @@ import './customers.css';
 
 export default function CustomersPage() {
     const router = useRouter();
-    const [customers, setCustomers] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
+    const initialCache = useMemo(
+        () => customersAPI.peekAll({ page: 1, limit: 15, search: undefined }),
+        []
+    );
+    const [customers, setCustomers] = useState<any[]>(() => initialCache?.customers || []);
+    const [loading, setLoading] = useState(!initialCache);
     const [errorMsg, setErrorMsg] = useState('');
     const [search, setSearch] = useState('');
-    const [page, setPage] = useState(1);
-    const [totalPages, setTotalPages] = useState(1);
+    const [page, setPage] = useState(initialCache?.pagination?.page ?? 1);
+    const [totalPages, setTotalPages] = useState(initialCache?.pagination?.totalPages ?? 1);
     const [showAdd, setShowAdd] = useState(false);
     const [editingCustomer, setEditingCustomer] = useState<any>(null);
     const [ratingCustomer, setRatingCustomer] = useState<any>(null);
 
     const fetchCustomers = useCallback(async (pageOverride?: number) => {
-        const shouldShowLoader = customers.length === 0;
-        if (shouldShowLoader) setLoading(true);
+        const requestPage = pageOverride ?? page;
+        const params = { page: requestPage, limit: 15, search: search || undefined };
+        const cached = customersAPI.peekAll(params);
+        if (cached) {
+            setCustomers(cached.customers || []);
+            setPage(requestPage);
+            setTotalPages(cached.pagination?.totalPages ?? 1);
+            setLoading(false);
+        } else if (customers.length === 0) {
+            setLoading(true);
+        }
         setErrorMsg('');
         try {
-            const requestPage = pageOverride ?? page;
-            const res = await customersAPI.getAll({ page: requestPage, limit: 15, search: search || undefined });
+            const res = await customersAPI.getAll(params);
             const d = res.data;
             setCustomers(d.customers || []);
             setPage(requestPage);
