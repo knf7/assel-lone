@@ -137,14 +137,22 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
         const limitNumber = Math.min(100, parseInt(limit, 10) || 20);
         const offset = (pageNumber - 1) * limitNumber;
         const isMockedDb = Boolean(req.dbClient?.query?._isMockFunction);
-        const resetRlsTransaction = async () => {
-            if (!req.dbClient?.query || !req.dbClient?.release) return;
+        const runWithFreshClient = async (query, params) => {
+            if (!db.pool || typeof db.pool.connect !== 'function') {
+                return db.query(query, params);
+            }
+            const client = await db.pool.connect();
             try {
-                await req.dbClient.query('ROLLBACK');
-                await req.dbClient.query('BEGIN');
-                await req.dbClient.query('SET LOCAL app.merchant_id = $1', [req.merchantId]);
+                await client.query('BEGIN');
+                await client.query('SET LOCAL app.merchant_id = $1', [req.merchantId]);
+                const result = await client.query(query, params);
+                await client.query('COMMIT');
+                return result;
             } catch (err) {
-                console.warn('RLS reset failed:', err?.message || err);
+                try { await client.query('ROLLBACK'); } catch { }
+                throw err;
+            } finally {
+                client.release(true);
             }
         };
         let hasRatingsTable = false;
@@ -178,6 +186,7 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
         }
 
         // Get total count
+        let useFreshClient = false;
         let totalCount = 0;
         try {
             const countResult = await req.dbClient.query(
@@ -187,8 +196,8 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
             totalCount = parseInt(countResult.rows[0].count);
         } catch (err) {
             console.warn('Customers count fallback:', err?.message || err);
-            await resetRlsTransaction();
-            const fallbackResult = await req.dbClient.query(
+            useFreshClient = true;
+            const fallbackResult = await runWithFreshClient(
                 `SELECT COUNT(*) FROM customers c WHERE ${whereClauseFallback}`,
                 params
             );
@@ -251,16 +260,22 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
                    ORDER BY base.created_at DESC`
         );
 
+        const runQuery = async (query, queryParams) => {
+            if (useFreshClient) {
+                return runWithFreshClient(query, queryParams);
+            }
+            return req.dbClient.query(query, queryParams);
+        };
+
         let result;
         try {
-            result = await req.dbClient.query(
+            result = await runQuery(
                 buildQuery(hasRatingsTable, whereClause),
                 [...params, limitNumber, offset]
             );
         } catch (err) {
             console.warn('Customers query fallback:', err?.message || err);
-            await resetRlsTransaction();
-            result = await req.dbClient.query(
+            result = await runWithFreshClient(
                 buildQuery(false, whereClauseFallback),
                 [...params, limitNumber, offset]
             );
