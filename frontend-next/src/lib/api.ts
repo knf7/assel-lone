@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const API_CACHE_PREFIX = 'api-cache:';
-const API_CACHE_TTL_MS = 1000 * 30;
+const API_CACHE_TTL_MS = 1000 * 120;
 const memoryCache = new Map<string, { data: any; savedAt: number }>();
 
 const getMerchantCacheTag = () => {

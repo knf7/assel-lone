@@ -242,6 +242,23 @@ export default function DashboardPage() {
     const [visibleCategories, setVisibleCategories] = useState<string[]>(() => STAT_CATEGORIES.map((c) => c.id));
     const [todayLabel, setTodayLabel] = useState('');
     const notifiedRef = useRef({ overdue: false, highRisk: false, summaryError: false });
+    const [enableHeavyFetch, setEnableHeavyFetch] = useState(false);
+
+    const subscriptionPlan = String(merchant?.subscriptionPlan || merchant?.subscription_plan || '').toLowerCase();
+    const initialSummary = useMemo(
+        () => readSession(DASHBOARD_SUMMARY_CACHE_KEY) ?? readPersisted(DASHBOARD_SUMMARY_CACHE_KEY),
+        []
+    );
+    const initialAnalytics = useMemo(
+        () =>
+            readSession(`dashboard-analytics-${chartInterval}`)
+            ?? readPersisted(`dashboard-analytics-${chartInterval}`),
+        [chartInterval]
+    );
+    const initialAi = useMemo(
+        () => readSession(DASHBOARD_AI_CACHE_KEY) ?? readPersisted(DASHBOARD_AI_CACHE_KEY),
+        []
+    );
 
     const addToast = useCallback((toast: any) => {
         const id = Date.now() + Math.random();
@@ -259,7 +276,7 @@ export default function DashboardPage() {
         gcTime: 1000 * 60 * 30,
         retry: 1,
         refetchOnWindowFocus: false,
-        initialData: () => readSession(DASHBOARD_SUMMARY_CACHE_KEY) ?? readPersisted(DASHBOARD_SUMMARY_CACHE_KEY),
+        initialData: initialSummary,
     });
 
     const analyticsQuery = useQuery({
@@ -268,14 +285,13 @@ export default function DashboardPage() {
             const res = await reportsAPI.getAnalytics({ interval: chartInterval });
             return (res as any).data ?? res;
         },
+        enabled: enableHeavyFetch,
         staleTime: 1000 * 60 * 5,
         gcTime: 1000 * 60 * 30,
         retry: 1,
         refetchOnWindowFocus: false,
         placeholderData: (prev) => prev,
-        initialData: () =>
-            readSession(`dashboard-analytics-${chartInterval}`)
-            ?? readPersisted(`dashboard-analytics-${chartInterval}`),
+        initialData: initialAnalytics,
     });
 
     const aiQuery = useQuery({
@@ -284,11 +300,12 @@ export default function DashboardPage() {
             const res = await reportsAPI.getAIAnalysis({});
             return (res as any).data ?? res;
         },
+        enabled: enableHeavyFetch && subscriptionPlan === 'enterprise',
         staleTime: 1000 * 60 * 5,
         gcTime: 1000 * 60 * 30,
         retry: false,
         refetchOnWindowFocus: false,
-        initialData: () => readSession(DASHBOARD_AI_CACHE_KEY) ?? readPersisted(DASHBOARD_AI_CACHE_KEY),
+        initialData: initialAi,
     });
 
     useEffect(() => {
@@ -323,6 +340,27 @@ export default function DashboardPage() {
             new Date().toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
         );
     }, []);
+
+    useEffect(() => {
+        if (enableHeavyFetch) return;
+        if (typeof window === 'undefined') return;
+        let idleHandle: number | null = null;
+        let timeoutHandle: number | null = null;
+        const trigger = () => setEnableHeavyFetch(true);
+        if ('requestIdleCallback' in window) {
+            idleHandle = (window as any).requestIdleCallback(trigger, { timeout: 1200 });
+        } else {
+            timeoutHandle = window.setTimeout(trigger, 400);
+        }
+        return () => {
+            if (idleHandle !== null && 'cancelIdleCallback' in window) {
+                (window as any).cancelIdleCallback(idleHandle);
+            }
+            if (timeoutHandle !== null) {
+                window.clearTimeout(timeoutHandle);
+            }
+        };
+    }, [enableHeavyFetch]);
 
     const toggleCategory = useCallback((id: string) => {
         setVisibleCategories((prev) => (
@@ -425,11 +463,6 @@ export default function DashboardPage() {
         () => ai.riskSegmentation || { highRisk: 0, medRisk: 0, lowRisk: 0 },
         [ai]
     );
-    const subscriptionPlan = useMemo(() => {
-        const plan = merchant?.subscriptionPlan || merchant?.subscription_plan || '';
-        return String(plan).toLowerCase();
-    }, [merchant]);
-
     const isInitialLoading = summaryQuery.isLoading && !summaryQuery.data;
     const hasCachedSummary = Boolean(summaryQuery.data);
 

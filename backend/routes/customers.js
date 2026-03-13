@@ -2,15 +2,37 @@ const express = require('express');
 const Joi = require('joi');
 const db = require('../config/database');
 const { authenticateToken, injectMerchantId, injectRlsContext, checkPermission } = require('../middleware/auth');
-const { clearCacheByPrefix } = require('../utils/cache');
+const { getCache, setCache, clearCacheByPrefix } = require('../utils/cache');
 
 const router = express.Router();
+
+const RATINGS_TABLE_CACHE_TTL_MS = 1000 * 60 * 5;
+let ratingsTableCache = { value: null, checkedAt: 0 };
+
+const resolveRatingsTable = async (client) => {
+    const now = Date.now();
+    if (ratingsTableCache.value !== null && (now - ratingsTableCache.checkedAt) < RATINGS_TABLE_CACHE_TTL_MS) {
+        return ratingsTableCache.value;
+    }
+    try {
+        const ratingsTableCheck = await client.query(`SELECT to_regclass('public.customer_ratings') AS t`);
+        const exists = Boolean(ratingsTableCheck.rows[0]?.t);
+        ratingsTableCache = { value: exists, checkedAt: now };
+        return exists;
+    } catch (err) {
+        ratingsTableCache = { value: false, checkedAt: now };
+        return false;
+    }
+};
 
 const invalidateReportsCache = async (merchantId) => {
     if (!merchantId) return;
     try {
         await clearCacheByPrefix(`reports:dashboard:${merchantId}`);
         await clearCacheByPrefix(`reports:analytics:${merchantId}:`);
+        await clearCacheByPrefix(`reports:ai:${merchantId}`);
+        await clearCacheByPrefix(`customers:list:${merchantId}:`);
+        await clearCacheByPrefix(`loans:list:${merchantId}:`);
     } catch {
         // Best-effort cache invalidation
     }
@@ -111,11 +133,13 @@ const ensureCustomerRatingsTable = async (client) => {
 router.get('/', checkPermission('can_view_customers'), async (req, res) => {
     try {
         const { page = 1, limit = 20, search } = req.query;
-        const offset = (page - 1) * limit;
+        const pageNumber = Math.max(1, parseInt(page, 10) || 1);
+        const limitNumber = Math.min(100, parseInt(limit, 10) || 20);
+        const offset = (pageNumber - 1) * limitNumber;
+        const isMockedDb = Boolean(req.dbClient?.query?._isMockFunction);
         let hasRatingsTable = false;
-        if (process.env.NODE_ENV !== 'test' && !req.dbClient?.query?._isMockFunction) {
-            const ratingsTableCheck = await req.dbClient.query(`SELECT to_regclass('public.customer_ratings') AS t`);
-            hasRatingsTable = Boolean(ratingsTableCheck.rows[0]?.t);
+        if (process.env.NODE_ENV !== 'test' && !isMockedDb) {
+            hasRatingsTable = await resolveRatingsTable(req.dbClient);
         }
 
         let whereClause = 'c.merchant_id = $1 AND c.deleted_at IS NULL';
@@ -124,6 +148,21 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
         if (search) {
             whereClause += ' AND (full_name ILIKE $2 OR national_id ILIKE $2 OR mobile_number ILIKE $2)';
             params.push(`%${search}%`);
+        }
+
+        const cacheParams = {
+            page: pageNumber,
+            limit: limitNumber,
+            search: search || null
+        };
+        const cacheKey = `customers:list:${req.merchantId}:${Buffer.from(JSON.stringify(cacheParams)).toString('base64')}`;
+        const useCache = !isMockedDb;
+        if (useCache) {
+            const cached = await getCache(cacheKey);
+            if (cached) {
+                res.set('Cache-Control', 'private, max-age=30');
+                return res.json(cached);
+            }
         }
 
         // Get total count
@@ -177,7 +216,7 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
        GROUP BY c.id
        ORDER BY c.created_at DESC
        LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-            [...params, limit, offset]
+            [...params, limitNumber, offset]
         );
 
         const enriched = result.rows.map((c) => {
@@ -199,15 +238,23 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
             });
         });
 
-        res.json({
+        const payload = {
             customers: enriched,
             pagination: {
-                page: parseInt(page),
-                limit: parseInt(limit),
+                page: pageNumber,
+                limit: limitNumber,
                 totalCount,
-                totalPages: Math.ceil(totalCount / limit)
+                totalPages: Math.ceil(totalCount / limitNumber)
             }
-        });
+        };
+
+        const ttlSeconds = Number(process.env.CUSTOMERS_LIST_CACHE_TTL || 30);
+        if (useCache) {
+            await setCache(cacheKey, payload, Number.isFinite(ttlSeconds) ? ttlSeconds : 30);
+            res.set('Cache-Control', 'private, max-age=30');
+        }
+
+        res.json(payload);
     } catch (err) {
         console.error('Get customers error:', err);
         res.status(500).json({ error: 'Failed to fetch customers' });

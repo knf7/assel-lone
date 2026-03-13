@@ -463,6 +463,7 @@ router.get('/analytics', checkPermission('can_view_analytics'), async (req, res)
 router.get('/ai-analysis', checkPermission('can_view_analytics'), async (req, res) => {
     try {
         const id = req.merchantId;
+        const isMockedDb = Boolean(db.query && db.query._isMockFunction);
 
         // 1. Verify SaaS Tier (must be enterprise)
         const merchantRes = await db.query('SELECT subscription_plan FROM merchants WHERE id = $1', [id]);
@@ -473,6 +474,16 @@ router.get('/ai-analysis', checkPermission('can_view_analytics'), async (req, re
                 error: 'تتطلب هذه الميزة باقة الأعمال (Enterprise). يرجى الترقية للحصول على تحليلات الذكاء الاصطناعي.',
                 requiresUpgrade: true
             });
+        }
+
+        const cacheKey = `reports:ai:${id}`;
+        const useCache = !isMockedDb;
+        if (useCache) {
+            const cached = await getCache(cacheKey);
+            if (cached) {
+                res.set('Cache-Control', 'private, max-age=300');
+                return res.json(cached);
+            }
         }
 
         // Gather all required data in parallel
@@ -746,7 +757,7 @@ router.get('/ai-analysis', checkPermission('can_view_analytics'), async (req, re
         else if (collectionRate >= 70) riskCapacity = 10;
         else if (collectionRate >= 60) riskCapacity = 5;
 
-        res.json({
+        const payload = {
             summary: {
                 totalPortfolio,
                 paidAmount,
@@ -774,7 +785,15 @@ router.get('/ai-analysis', checkPermission('can_view_analytics'), async (req, re
             overdueClients,
             recommendations,
             generatedAt: new Date().toISOString()
-        });
+        };
+
+        const ttlSeconds = Number(process.env.REPORTS_AI_CACHE_TTL || 300);
+        if (useCache) {
+            await setCache(cacheKey, payload, Number.isFinite(ttlSeconds) ? ttlSeconds : 300);
+            res.set('Cache-Control', 'private, max-age=300');
+        }
+
+        res.json(payload);
     } catch (err) {
         console.error('AI Analysis error:', err);
         res.status(500).json({ error: 'Failed to generate AI analysis' });

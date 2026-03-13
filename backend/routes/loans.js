@@ -11,7 +11,7 @@ const ExcelJS = require('exceljs');
 const { authenticateToken, injectMerchantId, checkPermission, injectRlsContext, stepUpAuth } = require('../middleware/auth');
 const { trackActivity } = require('../utils/anomalyDetector');
 const { uploadReceipt } = require('../middleware/upload');
-const { clearCacheByPrefix } = require('../utils/cache');
+const { getCache, setCache, clearCacheByPrefix } = require('../utils/cache');
 
 // Store uploads in /tmp for fast I/O
 const upload = multer({
@@ -48,6 +48,9 @@ const invalidateReportsCache = async (merchantId) => {
     try {
         await clearCacheByPrefix(`reports:dashboard:${merchantId}`);
         await clearCacheByPrefix(`reports:analytics:${merchantId}:`);
+        await clearCacheByPrefix(`reports:ai:${merchantId}`);
+        await clearCacheByPrefix(`loans:list:${merchantId}:`);
+        await clearCacheByPrefix(`customers:list:${merchantId}:`);
     } catch {
         // Best-effort cache invalidation
     }
@@ -562,7 +565,9 @@ const loanSchema = Joi.object({
 router.get('/', checkPermission('can_view_loans'), async (req, res) => {
     try {
         const { page = 1, limit = 20, status, customerId, startDate, endDate, search, is_najiz_case } = req.query;
-        const offset = (page - 1) * limit;
+        const pageNumber = Math.max(1, parseInt(page, 10) || 1);
+        const limitNumber = Math.min(100, parseInt(limit, 10) || 20);
+        const offset = (pageNumber - 1) * limitNumber;
         let conds = ['l.merchant_id = $1', 'l.deleted_at IS NULL'];
         let params = [req.merchantId];
         let i = 2;
@@ -583,6 +588,28 @@ router.get('/', checkPermission('can_view_loans'), async (req, res) => {
 
         const where = conds.join(' AND ');
 
+        const isMockedDb = Boolean(req.dbClient?.query?._isMockFunction);
+        const cacheParams = {
+            page: pageNumber,
+            limit: limitNumber,
+            status: status || null,
+            customerId: customerId || null,
+            startDate: startDate || null,
+            endDate: endDate || null,
+            search: search || null,
+            delayed: req.query.delayed === 'true',
+            is_najiz_case: is_najiz_case || null
+        };
+        const cacheKey = `loans:list:${req.merchantId}:${Buffer.from(JSON.stringify(cacheParams)).toString('base64')}`;
+        const useCache = !isMockedDb;
+        if (useCache) {
+            const cached = await getCache(cacheKey);
+            if (cached) {
+                res.set('Cache-Control', 'private, max-age=30');
+                return res.json(cached);
+            }
+        }
+
         const [countRes, dataRes] = await Promise.all([
             req.dbClient.query(`SELECT COUNT(*) FROM loans l LEFT JOIN customers c ON l.customer_id = c.id WHERE ${where}`, params),
             req.dbClient.query(
@@ -597,15 +624,27 @@ router.get('/', checkPermission('can_view_loans'), async (req, res) => {
                  WHERE ${where}
                  ORDER BY l.created_at DESC
                  LIMIT $${i} OFFSET $${i + 1}`,
-                [...params, limit, offset]
+                [...params, limitNumber, offset]
             )
         ]);
 
         const totalCount = parseInt(countRes.rows[0].count);
-        res.json({
+        const payload = {
             loans: dataRes.rows.map(enrichLoan),
-            pagination: { page: parseInt(page), limit: parseInt(limit), totalCount, totalPages: Math.ceil(totalCount / limit) }
-        });
+            pagination: {
+                page: pageNumber,
+                limit: limitNumber,
+                totalCount,
+                totalPages: Math.ceil(totalCount / limitNumber)
+            }
+        };
+
+        const ttlSeconds = Number(process.env.LOANS_LIST_CACHE_TTL || 30);
+        if (useCache) {
+            await setCache(cacheKey, payload, Number.isFinite(ttlSeconds) ? ttlSeconds : 30);
+            res.set('Cache-Control', 'private, max-age=30');
+        }
+        res.json(payload);
     } catch (err) {
         console.error('Get loans error:', err);
         res.status(500).json({ error: 'Failed to fetch loans' });

@@ -4,6 +4,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
+const compression = require('compression');
 require('dotenv').config();
 const { validateEnv } = require('./config/env');
 const Sentry = require('@sentry/node');
@@ -110,6 +111,7 @@ app.set('trust proxy', 1);
 // Security middleware
 app.use(cookieParser());
 app.use(helmet()); // Enable all Helmet security headers
+app.use(compression());
 
 const parseOriginList = (value) =>
     (value || '')
