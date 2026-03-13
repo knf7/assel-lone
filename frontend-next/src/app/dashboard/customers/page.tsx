@@ -43,7 +43,15 @@ export default function CustomersPage() {
             const d = res.data;
             setCustomers(d.customers || []);
             setPage(requestPage);
-            setTotalPages(d.pagination?.totalPages ?? 1);
+            const nextTotalPages = d.pagination?.totalPages ?? 1;
+            setTotalPages(nextTotalPages);
+
+            if (requestPage < nextTotalPages) {
+                customersAPI.prefetchAll({ ...params, page: requestPage + 1 });
+            }
+            if (requestPage > 1) {
+                customersAPI.prefetchAll({ ...params, page: requestPage - 1 });
+            }
         } catch {
             setCustomers([]);
             setTotalPages(1);

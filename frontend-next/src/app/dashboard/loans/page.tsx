@@ -79,6 +79,14 @@ const LoansPage = () => {
                 page: requestPage,
                 totalPages: data.pagination?.totalPages ?? 1
             }));
+
+            const nextTotalPages = data.pagination?.totalPages ?? 1;
+            if (requestPage < nextTotalPages) {
+                loansAPI.prefetchAll({ ...params, page: requestPage + 1 });
+            }
+            if (requestPage > 1) {
+                loansAPI.prefetchAll({ ...params, page: requestPage - 1 });
+            }
         } catch (error) {
             console.error('Failed to fetch loans:', error);
         } finally {

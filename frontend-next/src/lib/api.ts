@@ -107,6 +107,18 @@ const cachedGet = async (url: string, config: any = {}) => {
     return res;
 };
 
+const warmCache = async (url: string, config: any = {}) => {
+    const key = buildCacheKey(url, config?.params);
+    const cached = readCached(key);
+    if (cached !== undefined) return;
+    try {
+        const res = await api.get(url, config);
+        writeCached(key, res.data);
+    } catch {
+        // Best-effort prefetch; ignore failures
+    }
+};
+
 // Request interceptor: Attach Clerk token + merchant_id
 api.interceptors.request.use(async (config) => {
     if (typeof window !== 'undefined') {
@@ -153,6 +165,7 @@ api.interceptors.response.use(
 export const loansAPI = {
     getAll: (params: any) => cachedGet('/loans', { params }),
     peekAll: (params: any) => peekCached('/loans', { params }),
+    prefetchAll: (params: any) => warmCache('/loans', { params }),
     getById: (id: string) => cachedGet(`/loans/${id}`),
     create: async (data: any) => {
         const res = await api.post('/loans', data);
@@ -213,6 +226,7 @@ export const loansAPI = {
 export const customersAPI = {
     getAll: (params: any) => cachedGet('/customers', { params }),
     peekAll: (params: any) => peekCached('/customers', { params }),
+    prefetchAll: (params: any) => warmCache('/customers', { params }),
     getById: (id: string) => cachedGet(`/customers/${id}`),
     getRatings: (id: string, params?: any) => cachedGet(`/customers/${id}/ratings`, { params }),
     saveRating: async (id: string, data: any) => {
