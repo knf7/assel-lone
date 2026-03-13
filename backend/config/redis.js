@@ -54,7 +54,12 @@ if (useRedis) {
     };
     const get = (key) => Promise.resolve(store.get(key) || null);
     const del = (key) => Promise.resolve(store.delete(key));
-    redis = { setex, get, del };
+    const keys = (pattern = '*') => {
+        const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+        const regex = new RegExp(`^${escaped}$`);
+        return Promise.resolve([...store.keys()].filter((k) => regex.test(k)));
+    };
+    redis = { setex, get, del, keys };
 }
 
 // ── OTP helpers ──

@@ -24,7 +24,19 @@ async function setCache(key, value, ttlSeconds = 30) {
     }
 }
 
+async function clearCacheByPrefix(prefix) {
+    if (!redis || typeof redis.del !== 'function' || typeof redis.keys !== 'function') return;
+    try {
+        const keys = await redis.keys(`${prefix}*`);
+        if (!Array.isArray(keys) || keys.length === 0) return;
+        await redis.del(...keys);
+    } catch {
+        // Best-effort cache; ignore failures
+    }
+}
+
 module.exports = {
     getCache,
-    setCache
+    setCache,
+    clearCacheByPrefix
 };

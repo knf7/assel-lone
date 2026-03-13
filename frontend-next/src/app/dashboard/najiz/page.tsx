@@ -43,7 +43,13 @@ export default function NajizCasesPage() {
             setLoading(true);
             const response = await loansAPI.getAll({ is_najiz_case: true, limit: 100 });
             const data = response.data || response;
-            setCases(data.loans || []);
+            setCases(
+                (data.loans || []).map((loan: NajizCase) => ({
+                    ...loan,
+                    najiz_case_amount: loan.najiz_case_amount ?? loan.amount ?? 0,
+                    najiz_collected_amount: loan.najiz_collected_amount ?? 0
+                }))
+            );
         } catch (error) {
             console.error('Failed to fetch Najiz cases:', error);
         } finally {
@@ -52,7 +58,10 @@ export default function NajizCasesPage() {
     };
 
     const totalCases = cases.length;
-    const totalRaisedAmount = cases.reduce((sum, c) => sum + (Number(c.najiz_case_amount || 0) || 0), 0);
+    const totalRaisedAmount = cases.reduce(
+        (sum, c) => sum + (Number(c.najiz_case_amount ?? c.amount ?? 0) || 0),
+        0
+    );
     const totalCollectedAmount = cases.reduce((sum, c) => sum + (Number(c.najiz_collected_amount || 0) || 0), 0);
     const totalPaidCases = cases.filter(c => c.status === 'Paid').length;
     const totalActiveCases = cases.filter(c => c.status === 'Raised').length;
@@ -86,9 +95,11 @@ export default function NajizCasesPage() {
     const saveNajizDetails = async (loan: NajizCase) => {
         try {
             setUpdatingId(loan.id);
+            const caseAmount = Number(loan.najiz_case_amount ?? loan.amount ?? 0) || 0;
+            const collectedAmount = Number(loan.najiz_collected_amount ?? 0) || 0;
             await loansAPI.update(loan.id, {
-                najiz_case_amount: Number(loan.najiz_case_amount || 0) || 0,
-                najiz_collected_amount: Number(loan.najiz_collected_amount || 0) || 0,
+                najiz_case_amount: caseAmount,
+                najiz_collected_amount: collectedAmount,
                 najiz_plaintiff_name: loan.najiz_plaintiff_name,
                 najiz_plaintiff_national_id: loan.najiz_plaintiff_national_id
             });

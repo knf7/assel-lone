@@ -157,7 +157,7 @@ router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res)
                          OR najiz_case_number IS NOT NULL
                        )
                    ) AS paid_cases,
-                   COALESCE(SUM(COALESCE(najiz_case_amount, 0)) FILTER (
+                   COALESCE(SUM(COALESCE(najiz_case_amount, amount, 0)) FILTER (
                      WHERE ${loanSql.isNajizCase()}
                         OR najiz_case_number IS NOT NULL
                         OR status = 'Raised'
@@ -188,6 +188,7 @@ router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res)
                    l.updated_at,
                    l.najiz_case_number,
                    l.najiz_case_amount,
+                   l.amount,
                    ${loanSql.najizCollectedValue('l')} AS najiz_collected_amount,
                    l.najiz_status,
                    l.najiz_plaintiff_name,

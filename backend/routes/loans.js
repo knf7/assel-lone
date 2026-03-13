@@ -11,6 +11,7 @@ const ExcelJS = require('exceljs');
 const { authenticateToken, injectMerchantId, checkPermission, injectRlsContext, stepUpAuth } = require('../middleware/auth');
 const { trackActivity } = require('../utils/anomalyDetector');
 const { uploadReceipt } = require('../middleware/upload');
+const { clearCacheByPrefix } = require('../utils/cache');
 
 // Store uploads in /tmp for fast I/O
 const upload = multer({
@@ -41,6 +42,16 @@ const enrichLoan = (l) => ({
 const { checkPlanLimit } = require('../middleware/planLimits');
 
 const router = express.Router();
+
+const invalidateReportsCache = async (merchantId) => {
+    if (!merchantId) return;
+    try {
+        await clearCacheByPrefix(`reports:dashboard:${merchantId}`);
+        await clearCacheByPrefix(`reports:analytics:${merchantId}:`);
+    } catch {
+        // Best-effort cache invalidation
+    }
+};
 
 // Allow status updates for users who can access loans page
 // (merchant always allowed, employee needs either view or add loans permission).
@@ -119,6 +130,7 @@ router.delete('/:id', authenticateToken, injectMerchantId, checkPermission('can_
             return res.status(404).json({ error: 'القرض غير موجود أو لا تملك صلاحية حذفه' });
         }
 
+        await invalidateReportsCache(merchantId);
         res.status(200).json({ message: 'تم حذف القرض بنجاح (Soft Delete)', id: result.rows[0].id });
     } catch (err) {
         console.error('Error deleting loan:', err);
@@ -506,6 +518,7 @@ router.post('/upload', authenticateToken, injectMerchantId, checkPermission('can
         }
 
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        await invalidateReportsCache(merchantId);
         return res.json({
             message: 'تمت المعالجة بنجاح',
             summary: {
@@ -632,12 +645,13 @@ router.post('/', checkPermission('can_add_loans'), checkPlanLimit('loans'), asyn
                 req.merchantId, customerId, amount, principal_amount || amount, profit_percentage || 0,
                 receiptNumber, receiptImageUrl, transactionDate || new Date(), notes, initialStatus,
                 isRaised ? najiz_case_number : null,
-                isRaised ? (najiz_case_amount || null) : null,
+                isRaised ? (najiz_case_amount || amount || null) : null,
                 isRaised ? najiz_status : null,
                 isRaised,
                 isRaised ? (najiz_fee_percentage !== undefined ? najiz_fee_percentage : 30) : null
             ]
         );
+        await invalidateReportsCache(req.merchantId);
         res.status(201).json({ message: 'Loan created successfully', loan: enrichLoan(r.rows[0]) });
     } catch (err) {
         console.error('Create loan error:', err);
@@ -676,7 +690,11 @@ router.patch('/:id/status', checkLoanStatusPermission, async (req, res) => {
                 END,
                 najiz_case_number = CASE WHEN $1::varchar IN ('Active', 'Cancelled') THEN NULL ELSE najiz_case_number END,
                 najiz_status = CASE WHEN $1::varchar IN ('Active', 'Cancelled') THEN NULL ELSE najiz_status END,
-                najiz_case_amount = CASE WHEN $1::varchar IN ('Active', 'Cancelled') THEN NULL ELSE najiz_case_amount END,
+                najiz_case_amount = CASE
+                    WHEN $1::varchar IN ('Active', 'Cancelled') THEN NULL
+                    WHEN $1::varchar = 'Raised' THEN COALESCE(najiz_case_amount, amount)
+                    ELSE najiz_case_amount
+                END,
                 najiz_fee_percentage = CASE WHEN $1::varchar IN ('Active', 'Cancelled') THEN NULL ELSE najiz_fee_percentage END,
                 najiz_plaintiff_name = CASE WHEN $1::varchar IN ('Active', 'Cancelled') THEN NULL ELSE najiz_plaintiff_name END,
                 najiz_plaintiff_national_id = CASE WHEN $1::varchar IN ('Active', 'Cancelled') THEN NULL ELSE najiz_plaintiff_national_id END,
@@ -695,6 +713,7 @@ router.patch('/:id/status', checkLoanStatusPermission, async (req, res) => {
 
         const r = await req.dbClient.query(query, [status, id, req.merchantId, collectedAmountParam]);
         if (r.rows.length === 0) return res.status(404).json({ error: 'Loan not found' });
+        await invalidateReportsCache(req.merchantId);
         res.json({ message: 'Status updated successfully', loan: enrichLoan(r.rows[0]) });
     } catch (err) {
         console.error('Update status error:', err);
@@ -834,6 +853,7 @@ router.patch('/:id', checkPermission('can_add_loans'), async (req, res) => {
 
         if (result.rows.length === 0) return res.status(404).json({ error: 'Loan not found or unauthorized' });
 
+        await invalidateReportsCache(req.merchantId);
         res.json({ message: 'Loan updated successfully', loan: enrichLoan(result.rows[0]) });
     } catch (err) {
         console.error('Update loan error:', err);

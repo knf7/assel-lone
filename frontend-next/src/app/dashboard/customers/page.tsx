@@ -292,6 +292,14 @@ function RateCustomerModal({ customer, onClose, onSaved }: any) {
 
     const submit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (scope === 'delivery' && paidLoans.length === 0) {
+            setError('لا توجد قروض مسددة لهذا العميل حالياً');
+            return;
+        }
+        if (scope === 'delivery' && !loanId) {
+            setError('اختر قرضاً مسدداً قبل حفظ التقييم');
+            return;
+        }
         setLoading(true);
         setError('');
         try {
@@ -374,7 +382,11 @@ function RateCustomerModal({ customer, onClose, onSaved }: any) {
 
                     <div className="modal-footer">
                         <button type="button" className="btn btn-secondary" onClick={onClose}>إلغاء</button>
-                        <button type="submit" className="btn btn-primary" disabled={loading}>
+                        <button
+                            type="submit"
+                            className="btn btn-primary"
+                            disabled={loading || (scope === 'delivery' && paidLoans.length === 0)}
+                        >
                             {loading ? '⏳ جاري الحفظ...' : 'حفظ التقييم'}
                         </button>
                     </div>

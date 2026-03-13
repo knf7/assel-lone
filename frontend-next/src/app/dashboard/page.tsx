@@ -647,7 +647,7 @@ export default function DashboardPage() {
                             </thead>
                             <tbody>
                                 {najizDetails.map((item: any) => {
-                                    const raised = Number(item.najiz_case_amount || 0);
+                                    const raised = Number(item.najiz_case_amount ?? item.amount ?? 0);
                                     const collected = item.status === 'Paid'
                                         ? Number(item.najiz_collected_amount || item.najiz_case_amount || 0)
                                         : Number(item.najiz_collected_amount || 0);
