@@ -55,7 +55,7 @@ export default function CustomersPage() {
         } catch {
             setCustomers([]);
             setTotalPages(1);
-            setErrorMsg('تعذر الاتصال بالخادم. تأكد أن خدمة الـ API تعمل على المنفذ 3100.');
+            setErrorMsg('تعذر الاتصال بالخادم. تحقق من إعدادات الـ API أو أعد المحاولة.');
         }
         finally { setLoading(false); }
     }, [page, deferredSearch, customers.length]);

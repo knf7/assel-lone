@@ -1,8 +1,23 @@
 import { withSentryConfig } from "@sentry/nextjs";
 import type { NextConfig } from "next";
 
+const fallbackBackend = process.env.VERCEL
+  ? "https://aseel-backend.vercel.app"
+  : "http://localhost:3100";
+const backendOrigin = process.env.NEXT_PUBLIC_API_PROXY_TARGET
+  || process.env.BACKEND_URL
+  || fallbackBackend;
+const normalizedBackend = backendOrigin.replace(/\/$/, "");
+const apiDestination = normalizedBackend.endsWith("/api")
+  ? `${normalizedBackend}/:path*`
+  : `${normalizedBackend}/api/:path*`;
+
 const nextConfig: NextConfig = {
-  /* config options here */
+  async rewrites() {
+    return [
+      { source: "/api/:path*", destination: apiDestination },
+    ];
+  },
 };
 
 export default withSentryConfig(nextConfig, {

@@ -88,8 +88,16 @@ const clearDashboardCache = () => {
     } catch { /* ignore */ }
 };
 
+const getApiBaseUrl = () => {
+    if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+    if (typeof window !== 'undefined') return '/api';
+    const backendOrigin = process.env.BACKEND_URL
+        || (process.env.VERCEL ? 'https://aseel-backend.vercel.app' : 'http://localhost:3100');
+    return backendOrigin.endsWith('/api') ? backendOrigin : `${backendOrigin}/api`;
+};
+
 const api = axios.create({
-    baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost/api',
+    baseURL: getApiBaseUrl(),
     withCredentials: true,
     headers: {
         'Content-Type': 'application/json',
