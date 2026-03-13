@@ -334,7 +334,7 @@ export default function PricingPage() {
 
                   <div className="modal-actions">
                     <button
-                      className="plan-cta"
+                      className="plan-cta-primary"
                       style={{ background: selectedPlan.gradient }}
                       onClick={() => void handleSubmitRequest()}
                       disabled={!receiptFile || Boolean(loading)}
