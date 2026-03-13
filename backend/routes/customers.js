@@ -143,10 +143,12 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
         }
 
         let whereClause = 'c.merchant_id = $1 AND c.deleted_at IS NULL';
+        let whereClauseFallback = 'c.merchant_id = $1';
         let params = [req.merchantId];
 
         if (search) {
             whereClause += ' AND (full_name ILIKE $2 OR national_id ILIKE $2 OR mobile_number ILIKE $2)';
+            whereClauseFallback += ' AND (full_name ILIKE $2 OR national_id ILIKE $2 OR mobile_number ILIKE $2)';
             params.push(`%${search}%`);
         }
 
@@ -166,19 +168,29 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
         }
 
         // Get total count
-        const countResult = await req.dbClient.query(
-            `SELECT COUNT(*) FROM customers c WHERE ${whereClause}`,
-            params
-        );
-        const totalCount = parseInt(countResult.rows[0].count);
+        let totalCount = 0;
+        try {
+            const countResult = await req.dbClient.query(
+                `SELECT COUNT(*) FROM customers c WHERE ${whereClause}`,
+                params
+            );
+            totalCount = parseInt(countResult.rows[0].count);
+        } catch (err) {
+            console.warn('Customers count fallback:', err?.message || err);
+            const fallbackResult = await req.dbClient.query(
+                `SELECT COUNT(*) FROM customers c WHERE ${whereClauseFallback}`,
+                params
+            );
+            totalCount = parseInt(fallbackResult.rows[0].count);
+        }
 
         // Get customers with total debt
-        const result = await req.dbClient.query(
-            hasRatingsTable
+        const buildQuery = (useRatings, clause) => (
+            useRatings
                 ? `WITH base AS (
                      SELECT c.*
                      FROM customers c
-                     WHERE ${whereClause}
+                     WHERE ${clause}
                      ORDER BY c.created_at DESC
                      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
                    )
@@ -209,7 +221,7 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
                 : `WITH base AS (
                      SELECT c.*
                      FROM customers c
-                     WHERE ${whereClause}
+                     WHERE ${clause}
                      ORDER BY c.created_at DESC
                      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
                    )
@@ -225,9 +237,22 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
                    FROM base
                    LEFT JOIN loans l ON base.id = l.customer_id AND l.merchant_id = base.merchant_id
                    GROUP BY base.id
-                   ORDER BY base.created_at DESC`,
-            [...params, limitNumber, offset]
+                   ORDER BY base.created_at DESC`
         );
+
+        let result;
+        try {
+            result = await req.dbClient.query(
+                buildQuery(hasRatingsTable, whereClause),
+                [...params, limitNumber, offset]
+            );
+        } catch (err) {
+            console.warn('Customers query fallback:', err?.message || err);
+            result = await req.dbClient.query(
+                buildQuery(false, whereClauseFallback),
+                [...params, limitNumber, offset]
+            );
+        }
 
         const enriched = result.rows.map((c) => {
             const paid = parseInt(c.paid_loans || 0, 10);
