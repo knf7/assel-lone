@@ -246,8 +246,14 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
     return scheduleIdle(() => {
       customersAPI.prefetchAll({ page: 1, limit: 15 });
       loansAPI.prefetchAll({ page: 1, limit: 20 });
+      if (visibleNavItems.some((item) => item.path === '/dashboard/najiz')) {
+        loansAPI.prefetchAll({ is_najiz_case: true, limit: 100, skip_count: true });
+      }
+      if (visibleNavItems.some((item) => item.path === '/dashboard/analytics')) {
+        reportsAPI.getAnalytics({ interval: 'year' });
+      }
     });
-  }, []);
+  }, [visibleNavItems]);
 
   useEffect(() => {
     const runMonthEndNotice = async () => {
