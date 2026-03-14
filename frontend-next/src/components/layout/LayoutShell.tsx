@@ -252,6 +252,9 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
       if (visibleNavItems.some((item) => item.path === '/dashboard/analytics')) {
         reportsAPI.getAnalytics({ interval: 'year' });
       }
+      if (visibleNavItems.some((item) => item.path === '/dashboard')) {
+        reportsAPI.getDashboard({});
+      }
     });
   }, [visibleNavItems]);
 
