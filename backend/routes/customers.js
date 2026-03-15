@@ -43,6 +43,22 @@ const invalidateReportsCache = async (merchantId) => {
     }
 };
 
+const buildCustomerSearchFilter = (searchValue, paramIndex) => {
+    const normalized = String(searchValue || '').trim();
+    if (!normalized) return { clause: '', params: [] };
+    const isNumeric = /^[0-9]+$/.test(normalized);
+    if (isNumeric) {
+        return {
+            clause: `(c.national_id LIKE $${paramIndex} OR c.mobile_number LIKE $${paramIndex})`,
+            params: [`${normalized}%`]
+        };
+    }
+    return {
+        clause: `c.full_name ILIKE $${paramIndex}`,
+        params: [`%${normalized}%`]
+    };
+};
+
 // Apply auth middleware and RLS
 router.use(authenticateToken);
 router.use(injectMerchantId);
@@ -187,10 +203,11 @@ const ensureCustomerRatingsTable = async (client) => {
 // GET /api/customers - List all customers
 router.get('/', checkPermission('can_view_customers'), async (req, res) => {
     try {
-        const { page = 1, limit = 20, search } = req.query;
+        const { page = 1, limit = 20, search, skip_count } = req.query;
         const pageNumber = Math.max(1, parseInt(page, 10) || 1);
         const limitNumber = Math.min(100, parseInt(limit, 10) || 20);
         const offset = (pageNumber - 1) * limitNumber;
+        const skipCount = skip_count === 'true' || req.query.skipCount === 'true';
         const isMockedDb = Boolean(req.dbClient?.query?._isMockFunction);
         let hasRatingsTable = false;
         if (process.env.NODE_ENV !== 'test' && !isMockedDb) {
@@ -201,16 +218,18 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
         let whereClauseFallback = 'c.merchant_id = $1';
         let params = [req.merchantId];
 
-        if (search) {
-            whereClause += ' AND (full_name ILIKE $2 OR national_id ILIKE $2 OR mobile_number ILIKE $2)';
-            whereClauseFallback += ' AND (full_name ILIKE $2 OR national_id ILIKE $2 OR mobile_number ILIKE $2)';
-            params.push(`%${search}%`);
+        const searchFilter = buildCustomerSearchFilter(search, params.length + 1);
+        if (searchFilter.clause) {
+            whereClause += ` AND (${searchFilter.clause})`;
+            whereClauseFallback += ` AND (${searchFilter.clause})`;
+            params.push(...searchFilter.params);
         }
 
         const cacheParams = {
             page: pageNumber,
             limit: limitNumber,
-            search: search || null
+            search: search || null,
+            skip_count: skipCount
         };
         const cacheKey = `customers:list:${req.merchantId}:${Buffer.from(JSON.stringify(cacheParams)).toString('base64')}`;
         const useCache = !isMockedDb;
@@ -227,17 +246,17 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
 
         const runQuery = async (query, queryParams) => req.dbClient.query(query, queryParams);
 
+        const countSelect = skipCount ? '' : ', COUNT(*) OVER() AS total_count';
+        const queryLimit = skipCount ? limitNumber + 1 : limitNumber;
         const baseQuery = `
-            SELECT c.*,
-                   COUNT(*) OVER() AS total_count
+            SELECT c.*${countSelect}
             FROM customers c
             WHERE ${whereClause}
             ORDER BY c.created_at DESC
             LIMIT $${params.length + 1} OFFSET $${params.length + 2}
         `;
         const baseQueryFallback = `
-            SELECT c.*,
-                   COUNT(*) OVER() AS total_count
+            SELECT c.*${countSelect}
             FROM customers c
             WHERE ${whereClauseFallback}
             ORDER BY c.created_at DESC
@@ -246,21 +265,28 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
 
         let baseResult;
         try {
-            baseResult = await runQuery(baseQuery, [...params, limitNumber, offset]);
+            baseResult = await runQuery(baseQuery, [...params, queryLimit, offset]);
         } catch (err) {
             console.warn('Customers base query fallback:', err?.message || err);
-            baseResult = await runQuery(baseQueryFallback, [...params, limitNumber, offset]);
+            baseResult = await runQuery(baseQueryFallback, [...params, queryLimit, offset]);
         }
 
-        const totalCount = baseResult.rows.length
-            ? parseInt(baseResult.rows[0].total_count || 0, 10)
-            : 0;
+        let baseRows = baseResult.rows;
+        let hasMore = false;
+        if (skipCount && baseRows.length > limitNumber) {
+            hasMore = true;
+            baseRows = baseRows.slice(0, limitNumber);
+        }
 
-        const baseRows = baseResult.rows.map((row) => {
+        const totalCount = skipCount
+            ? ((pageNumber - 1) * limitNumber + baseRows.length + (hasMore ? 1 : 0))
+            : (baseRows.length ? parseInt(baseRows[0].total_count || 0, 10) : 0);
+
+        const baseRowsClean = baseRows.map((row) => {
             const { total_count, ...rest } = row;
             return rest;
         });
-        const customerIds = baseRows.map((row) => row.id).filter(Boolean);
+        const customerIds = baseRowsClean.map((row) => row.id).filter(Boolean);
 
         const loanAggMap = new Map();
         if (customerIds.length > 0) {
@@ -330,7 +356,7 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
             }
         }
 
-        const enriched = baseRows.map((c) => {
+        const enriched = baseRowsClean.map((c) => {
             const loanAgg = loanAggMap.get(c.id) || {};
             const ratingAgg = ratingAggMap.get(c.id) || {};
             const paid = parseInt(loanAgg.paid_loans || 0, 10);
@@ -365,7 +391,8 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
                 page: pageNumber,
                 limit: limitNumber,
                 totalCount,
-                totalPages: Math.ceil(totalCount / limitNumber)
+                totalPages: skipCount ? (hasMore ? pageNumber + 1 : pageNumber) : Math.ceil(totalCount / limitNumber),
+                hasMore
             }
         };
 

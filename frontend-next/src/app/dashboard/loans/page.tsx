@@ -69,10 +69,14 @@ const LoansPage = () => {
         const requestId = ++requestIdRef.current;
         try {
             const requestPage = pageOverride ?? pagination.page;
+            const searchValue = String(deferredFilters.search || '').trim();
+            const skipCount = Boolean(searchValue);
             const params = {
                 ...deferredFilters,
+                search: searchValue || undefined,
                 page: requestPage,
-                limit: pagination.limit
+                limit: pagination.limit,
+                skip_count: skipCount || undefined
             };
             const cached = loansAPI.peekAll(params);
             if (cached) {

@@ -31,7 +31,14 @@ export default function CustomersPage() {
     const fetchCustomers = useCallback(async (pageOverride?: number) => {
         const requestId = ++requestIdRef.current;
         const requestPage = pageOverride ?? page;
-        const params = { page: requestPage, limit: 15, search: deferredSearch || undefined };
+        const searchValue = deferredSearch.trim();
+        const skipCount = Boolean(searchValue);
+        const params = {
+            page: requestPage,
+            limit: 15,
+            search: searchValue || undefined,
+            skip_count: skipCount || undefined
+        };
         const cached = customersAPI.peekAll(params);
         if (cached) {
             setCustomers(cached.customers || []);

@@ -728,7 +728,20 @@ router.get('/', checkPermission('can_view_loans'), async (req, res) => {
         if (customerId) { conds.push(`l.customer_id = $${i++}`); params.push(customerId); }
         if (startDate) { conds.push(`l.transaction_date >= $${i++}`); params.push(startDate); }
         if (endDate) { conds.push(`l.transaction_date <= $${i++}`); params.push(endDate); }
-        if (search) { conds.push(`(c.full_name ILIKE $${i} OR c.national_id ILIKE $${i})`); params.push(`%${search}%`); i++; }
+        if (search) {
+            const searchValue = String(search || '').trim();
+            if (searchValue) {
+                const isNumeric = /^[0-9]+$/.test(searchValue);
+                if (isNumeric) {
+                    conds.push(`(c.national_id LIKE $${i} OR c.mobile_number LIKE $${i})`);
+                    params.push(`${searchValue}%`);
+                } else {
+                    conds.push(`(c.full_name ILIKE $${i})`);
+                    params.push(`%${searchValue}%`);
+                }
+                i++;
+            }
+        }
 
         const where = conds.join(' AND ');
 
@@ -759,6 +772,7 @@ router.get('/', checkPermission('can_view_loans'), async (req, res) => {
         }
 
         const countSelect = skipCount ? '' : ', COUNT(*) OVER() AS total_count';
+        const queryLimit = skipCount ? limitNumber + 1 : limitNumber;
         const dataQuery = `
             SELECT l.id, l.amount, l.principal_amount, l.profit_percentage, l.receipt_number, l.receipt_image_url,
                    l.status, l.transaction_date, l.created_at, l.notes,
@@ -776,12 +790,18 @@ router.get('/', checkPermission('can_view_loans'), async (req, res) => {
             LIMIT $${i} OFFSET $${i + 1}
         `;
 
-        const dataRes = await req.dbClient.query(dataQuery, [...params, limitNumber, offset]);
+        const dataRes = await req.dbClient.query(dataQuery, [...params, queryLimit, offset]);
+        let rows = dataRes.rows;
+        let hasMore = false;
+        if (skipCount && rows.length > limitNumber) {
+            hasMore = true;
+            rows = rows.slice(0, limitNumber);
+        }
         const totalCount = skipCount
-            ? dataRes.rows.length
-            : (dataRes.rows.length ? parseInt(dataRes.rows[0].total_count || 0, 10) : 0);
+            ? ((pageNumber - 1) * limitNumber + rows.length + (hasMore ? 1 : 0))
+            : (rows.length ? parseInt(rows[0].total_count || 0, 10) : 0);
         const payload = {
-            loans: dataRes.rows.map((row) => {
+            loans: rows.map((row) => {
                 const { total_count, ...rest } = row;
                 return enrichLoan(rest);
             }),
@@ -789,7 +809,8 @@ router.get('/', checkPermission('can_view_loans'), async (req, res) => {
                 page: pageNumber,
                 limit: limitNumber,
                 totalCount,
-                totalPages: skipCount ? 1 : Math.ceil(totalCount / limitNumber)
+                totalPages: skipCount ? (hasMore ? pageNumber + 1 : pageNumber) : Math.ceil(totalCount / limitNumber),
+                hasMore
             }
         };
 
