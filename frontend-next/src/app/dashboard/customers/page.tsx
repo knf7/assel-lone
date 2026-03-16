@@ -6,6 +6,7 @@ import { customersAPI } from '@/lib/api';
 import { toast } from 'sonner';
 import { IconWhatsapp, IconScale, IconEdit } from '@/components/layout/icons';
 import { useDataSync } from '@/hooks/useDataSync';
+import { useDebounce } from '@/hooks/useDebounce';
 import './customers.css';
 
 export default function CustomersPage() {
@@ -18,7 +19,8 @@ export default function CustomersPage() {
     const [loading, setLoading] = useState(!initialCache);
     const [errorMsg, setErrorMsg] = useState('');
     const [search, setSearch] = useState('');
-    const deferredSearch = useDeferredValue(search);
+    const debouncedSearch = useDebounce(search, 350);
+    const deferredSearch = useDeferredValue(debouncedSearch);
     const [, startTransition] = useTransition();
     const [page, setPage] = useState<number>(initialCache?.pagination?.page ?? 1);
     const [totalPages, setTotalPages] = useState<number>(initialCache?.pagination?.totalPages ?? 1);

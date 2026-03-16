@@ -289,6 +289,7 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
         const customerIds = baseRowsClean.map((row) => row.id).filter(Boolean);
 
         const loanAggMap = new Map();
+        const ratingAggMap = new Map();
         if (customerIds.length > 0) {
             const loanAggQuery = `
                 SELECT
@@ -317,23 +318,6 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
                   AND l.customer_id = ANY($2::uuid[])
                 GROUP BY l.customer_id
             `;
-
-            try {
-                const loanAggRes = await runQuery(loanAggQuery, [req.merchantId, customerIds]);
-                loanAggRes.rows.forEach((row) => loanAggMap.set(row.customer_id, row));
-            } catch (err) {
-                console.warn('Customers loan aggregate fallback:', err?.message || err);
-                try {
-                    const loanAggRes = await runQuery(loanAggFallbackQuery, [req.merchantId, customerIds]);
-                    loanAggRes.rows.forEach((row) => loanAggMap.set(row.customer_id, row));
-                } catch (fallbackErr) {
-                    console.warn('Customers loan aggregate failed:', fallbackErr?.message || fallbackErr);
-                }
-            }
-        }
-
-        const ratingAggMap = new Map();
-        if (hasRatingsTable && customerIds.length > 0) {
             const ratingAggQuery = `
                 SELECT
                     cr.customer_id,
@@ -348,11 +332,31 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
                   AND cr.customer_id = ANY($2::uuid[])
                 GROUP BY cr.customer_id
             `;
-            try {
-                const ratingRes = await runQuery(ratingAggQuery, [req.merchantId, customerIds]);
-                ratingRes.rows.forEach((row) => ratingAggMap.set(row.customer_id, row));
-            } catch (err) {
-                console.warn('Customers rating aggregate failed:', err?.message || err);
+
+            const fetchLoanAgg = async () => {
+                try {
+                    return await runQuery(loanAggQuery, [req.merchantId, customerIds]);
+                } catch (err) {
+                    console.warn('Customers loan aggregate fallback:', err?.message || err);
+                    return await runQuery(loanAggFallbackQuery, [req.merchantId, customerIds]);
+                }
+            };
+
+            const results = await Promise.allSettled([
+                fetchLoanAgg(),
+                hasRatingsTable ? runQuery(ratingAggQuery, [req.merchantId, customerIds]) : Promise.resolve({ rows: [] })
+            ]);
+
+            if (results[0].status === 'fulfilled') {
+                results[0].value.rows.forEach((row) => loanAggMap.set(row.customer_id, row));
+            } else {
+                console.warn('Customers loan aggregate failed:', results[0].reason?.message || results[0].reason);
+            }
+
+            if (results[1].status === 'fulfilled') {
+                results[1].value.rows.forEach((row) => ratingAggMap.set(row.customer_id, row));
+            } else if (hasRatingsTable) {
+                console.warn('Customers rating aggregate failed:', results[1].reason?.message || results[1].reason);
             }
         }
 

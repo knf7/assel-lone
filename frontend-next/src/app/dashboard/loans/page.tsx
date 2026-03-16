@@ -10,6 +10,7 @@ import {
 } from '@/components/layout/icons';
 import MoneyRain from '@/components/layout/MoneyRain';
 import { useDataSync } from '@/hooks/useDataSync';
+import { useDebounce } from '@/hooks/useDebounce';
 import './loans.css';
 
 const INTEREST_OPTIONS = [10, 20, 30];
@@ -34,7 +35,8 @@ const LoansPage = () => {
         endDate: '',
         delayed: false
     });
-    const deferredFilters = useDeferredValue(filters);
+    const debouncedSearch = useDebounce(filters.search, 350);
+    const deferredFilters = useDeferredValue({ ...filters, search: debouncedSearch });
     const [, startTransition] = useTransition();
     const [pagination, setPagination] = useState<{ page: number; limit: number; totalPages: number }>(() => ({
         page: initialCache?.pagination?.page ?? 1,
