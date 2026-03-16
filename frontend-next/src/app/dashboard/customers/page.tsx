@@ -300,8 +300,8 @@ export default function CustomersPage() {
                                             : status === 'unpaid'
                                                 ? 'row-state-unpaid'
                                                 : '';
-                                    const rating = statsPending ? null : Number(c.rating || 0);
-                                    const normalizedRating = statsPending ? 0 : Math.max(0, Math.min(10, rating));
+                                    const ratingValue = statsPending ? 0 : Number(c.rating || 0);
+                                    const normalizedRating = Math.max(0, Math.min(10, ratingValue));
                                     return (
                                         <tr key={c.id} className={rowStateClass}>
                                             <td className="td-num">{(page - 1) * 15 + i + 1}</td>
