@@ -29,24 +29,52 @@ export default function CustomersPage() {
     const [ratingCustomer, setRatingCustomer] = useState<any>(null);
     const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const requestIdRef = useRef(0);
+    const statsRequestRef = useRef(0);
+
+    const loadCustomerStats = useCallback(async (list: any[]) => {
+        const ids = list.map((c) => c.id).filter(Boolean);
+        if (ids.length === 0) return;
+        const requestId = ++statsRequestRef.current;
+        try {
+            const res = await customersAPI.getStats(ids);
+            if (requestId !== statsRequestRef.current) return;
+            const stats = res.data?.stats || res.stats || {};
+            setCustomers((prev) => prev.map((c) => {
+                const stat = stats[c.id];
+                if (!stat) return c;
+                return { ...c, ...stat, stats_pending: false };
+            }));
+        } catch {
+            // keep lightweight list if stats fail
+        }
+    }, []);
 
     const fetchCustomers = useCallback(async (pageOverride?: number) => {
         const requestId = ++requestIdRef.current;
         const requestPage = pageOverride ?? page;
         const searchValue = deferredSearch.trim();
         const skipCount = Boolean(searchValue);
+        const includeStats = false;
         const params = {
             page: requestPage,
             limit: 15,
             search: searchValue || undefined,
-            skip_count: skipCount || undefined
+            skip_count: skipCount || undefined,
+            include_stats: includeStats ? undefined : false
         };
         const cached = customersAPI.peekAll(params);
         if (cached) {
-            setCustomers(cached.customers || []);
+            const cachedList = cached.customers || [];
+            const nextCustomers = includeStats
+                ? cachedList
+                : cachedList.map((c: any) => ({ ...c, stats_pending: true }));
+            setCustomers(nextCustomers);
             setPage(requestPage);
             setTotalPages(cached.pagination?.totalPages ?? 1);
             setLoading(false);
+            if (!includeStats) {
+                loadCustomerStats(nextCustomers);
+            }
         } else if (customers.length === 0) {
             setLoading(true);
         }
@@ -55,7 +83,11 @@ export default function CustomersPage() {
             const res = await customersAPI.getAll(params);
             if (requestId !== requestIdRef.current) return;
             const d = res.data;
-            setCustomers(d.customers || []);
+            const list = d.customers || [];
+            const nextCustomers = includeStats
+                ? list
+                : list.map((c: any) => ({ ...c, stats_pending: true }));
+            setCustomers(nextCustomers);
             setPage(requestPage);
             const nextTotalPages = d.pagination?.totalPages ?? 1;
             setTotalPages(nextTotalPages);
@@ -65,6 +97,9 @@ export default function CustomersPage() {
             }
             if (requestPage > 1) {
                 customersAPI.prefetchAll({ ...params, page: requestPage - 1 });
+            }
+            if (!includeStats) {
+                loadCustomerStats(nextCustomers);
             }
         } catch (err: any) {
             setCustomers([]);
@@ -108,8 +143,9 @@ export default function CustomersPage() {
     };
 
     const totalCustomers = customers.length;
-    const customersWithDebt = customers.filter((c) => parseFloat(c.total_debt || 0) > 0).length;
-    const clearCustomers = totalCustomers - customersWithDebt;
+    const statsLoading = customers.some((c) => c.stats_pending);
+    const customersWithDebt = statsLoading ? 0 : customers.filter((c) => parseFloat(c.total_debt || 0) > 0).length;
+    const clearCustomers = statsLoading ? 0 : totalCustomers - customersWithDebt;
     const pageItems = useMemo(() => {
         const items: Array<number | 'ellipsis'> = [];
         if (totalPages <= 1) return items;
@@ -213,11 +249,11 @@ export default function CustomersPage() {
                 </div>
                 <div className="kpi-card kpi-warn">
                     <span className="kpi-label">عملاء لديهم دين</span>
-                    <strong className="kpi-value">{customersWithDebt.toLocaleString('en-US')}</strong>
+                    <strong className="kpi-value">{statsLoading ? '—' : customersWithDebt.toLocaleString('en-US')}</strong>
                 </div>
                 <div className="kpi-card kpi-good">
                     <span className="kpi-label">عملاء بدون دين</span>
-                    <strong className="kpi-value">{clearCustomers.toLocaleString('en-US')}</strong>
+                    <strong className="kpi-value">{statsLoading ? '—' : clearCustomers.toLocaleString('en-US')}</strong>
                 </div>
             </div>
 
@@ -254,8 +290,9 @@ export default function CustomersPage() {
                             </thead>
                             <tbody>
                                 {customers.map((c, i) => {
-                                    const debt = parseFloat(c.total_debt || 0);
-                                    const status = (c.customer_status || '').toLowerCase();
+                                    const statsPending = Boolean(c.stats_pending);
+                                    const debt = statsPending ? null : parseFloat(c.total_debt || 0);
+                                    const status = statsPending ? '' : (c.customer_status || '').toLowerCase();
                                     const rowStateClass = status === 'paid'
                                         ? 'row-state-paid'
                                         : status === 'raised'
@@ -263,8 +300,8 @@ export default function CustomersPage() {
                                             : status === 'unpaid'
                                                 ? 'row-state-unpaid'
                                                 : '';
-                                    const rating = Number(c.rating || 0);
-                                    const normalizedRating = Math.max(0, Math.min(10, rating));
+                                    const rating = statsPending ? null : Number(c.rating || 0);
+                                    const normalizedRating = statsPending ? 0 : Math.max(0, Math.min(10, rating));
                                     return (
                                         <tr key={c.id} className={rowStateClass}>
                                             <td className="td-num">{(page - 1) * 15 + i + 1}</td>
@@ -279,17 +316,22 @@ export default function CustomersPage() {
                                             <td className="td-mono">{c.national_id || '—'}</td>
                                             <td className="td-mono">{c.mobile_number || '—'}</td>
                                             <td>
-                                                <div className="rating-wrap">
-                                                    <div className="rating-bar">
-                                                        <div className="rating-fill" style={{ width: `${normalizedRating * 10}%` }} />
+                                                {statsPending ? (
+                                                    <span className="muted">—</span>
+                                                ) : (
+                                                    <div className="rating-wrap">
+                                                        <div className="rating-bar">
+                                                            <div className="rating-fill" style={{ width: `${normalizedRating * 10}%` }} />
+                                                        </div>
+                                                        <span className="rating-value">{normalizedRating.toFixed(1)}/10</span>
                                                     </div>
-                                                    <span className="rating-value">{normalizedRating.toFixed(1)}/10</span>
-                                                </div>
+                                                )}
                                             </td>
                                             <td className={`td-amount ${debt > 0 ? 'amount-debt' : 'amount-zero'}`}>
-                                                {debt > 0 ? `${debt.toLocaleString('en-US')} ﷼` : 'لا دين'}
+                                                {statsPending ? '—' : (debt > 0 ? `${debt.toLocaleString('en-US')} ﷼` : 'لا دين')}
                                             </td>
                                             <td>
+                                                {statsPending && <span className="badge badge-neutral">جارٍ التحديث</span>}
                                                 {status === 'paid' && <span className="badge badge-success">تم السداد</span>}
                                                 {status === 'raised' && <span className="badge badge-danger">قضايا</span>}
                                                 {status === 'unpaid' && <span className="badge badge-warn">لم يسدد</span>}

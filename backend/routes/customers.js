@@ -59,6 +59,34 @@ const buildCustomerSearchFilter = (searchValue, paramIndex) => {
     };
 };
 
+const buildCustomerStats = (customerId, loanAggMap, ratingAggMap) => {
+    const loanAgg = loanAggMap.get(customerId) || {};
+    const ratingAgg = ratingAggMap.get(customerId) || {};
+    const paid = parseInt(loanAgg.paid_loans || 0, 10);
+    const raised = parseInt(loanAgg.raised_loans || 0, 10);
+    const active = parseInt(loanAgg.active_loans || 0, 10);
+    const total = parseInt(loanAgg.total_loans || 0, 10);
+    const rawScore = 100 + (paid * 3) - (active * 8) - (raised * 15);
+    const computedRating = Math.max(0, Math.min(10, rawScore / 10));
+    const manualRating = Number(ratingAgg.overall_score || 0);
+    const rating = manualRating > 0 ? manualRating : computedRating;
+    const customer_status = raised > 0 ? 'raised' : active > 0 ? 'unpaid' : total > 0 ? 'paid' : 'new';
+
+    return {
+        total_debt: Number(loanAgg.total_debt || 0),
+        total_loans: Number(loanAgg.total_loans || 0),
+        paid_loans: Number(loanAgg.paid_loans || 0),
+        raised_loans: Number(loanAgg.raised_loans || 0),
+        active_loans: Number(loanAgg.active_loans || 0),
+        delivery_avg: Number(ratingAgg.delivery_avg || 0),
+        monthly_avg: Number(ratingAgg.monthly_avg || 0),
+        overall_score: Number(ratingAgg.overall_score || 0),
+        rating: Number(rating.toFixed(1)),
+        rating_source: manualRating > 0 ? 'manual' : 'system',
+        customer_status
+    };
+};
+
 // Apply auth middleware and RLS
 router.use(authenticateToken);
 router.use(injectMerchantId);
@@ -203,14 +231,15 @@ const ensureCustomerRatingsTable = async (client) => {
 // GET /api/customers - List all customers
 router.get('/', checkPermission('can_view_customers'), async (req, res) => {
     try {
-        const { page = 1, limit = 20, search, skip_count } = req.query;
+        const { page = 1, limit = 20, search, skip_count, include_stats } = req.query;
         const pageNumber = Math.max(1, parseInt(page, 10) || 1);
         const limitNumber = Math.min(100, parseInt(limit, 10) || 20);
         const offset = (pageNumber - 1) * limitNumber;
         const skipCount = skip_count === 'true' || req.query.skipCount === 'true';
+        const includeStats = include_stats !== 'false';
         const isMockedDb = Boolean(req.dbClient?.query?._isMockFunction);
         let hasRatingsTable = false;
-        if (process.env.NODE_ENV !== 'test' && !isMockedDb) {
+        if (includeStats && process.env.NODE_ENV !== 'test' && !isMockedDb) {
             hasRatingsTable = await resolveRatingsTable();
         }
 
@@ -290,7 +319,7 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
 
         const loanAggMap = new Map();
         const ratingAggMap = new Map();
-        if (customerIds.length > 0) {
+        if (includeStats && customerIds.length > 0) {
             const loanAggQuery = `
                 SELECT
                     l.customer_id,
@@ -361,31 +390,10 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
         }
 
         const enriched = baseRowsClean.map((c) => {
-            const loanAgg = loanAggMap.get(c.id) || {};
-            const ratingAgg = ratingAggMap.get(c.id) || {};
-            const paid = parseInt(loanAgg.paid_loans || 0, 10);
-            const raised = parseInt(loanAgg.raised_loans || 0, 10);
-            const active = parseInt(loanAgg.active_loans || 0, 10);
-            const total = parseInt(loanAgg.total_loans || 0, 10);
-            const rawScore = 100 + (paid * 3) - (active * 8) - (raised * 15);
-            const computedRating = Math.max(0, Math.min(10, rawScore / 10));
-            const manualRating = Number(ratingAgg.overall_score || 0);
-            const rating = manualRating > 0 ? manualRating : computedRating;
-            const customer_status = raised > 0 ? 'raised' : active > 0 ? 'unpaid' : total > 0 ? 'paid' : 'new';
-
             return enrichCustomer({
                 ...c,
-                total_debt: Number(loanAgg.total_debt || 0),
-                total_loans: Number(loanAgg.total_loans || 0),
-                paid_loans: Number(loanAgg.paid_loans || 0),
-                raised_loans: Number(loanAgg.raised_loans || 0),
-                active_loans: Number(loanAgg.active_loans || 0),
-                delivery_avg: Number(ratingAgg.delivery_avg || 0),
-                monthly_avg: Number(ratingAgg.monthly_avg || 0),
-                overall_score: Number(ratingAgg.overall_score || 0),
-                rating: Number(rating.toFixed(1)),
-                rating_source: manualRating > 0 ? 'manual' : 'system',
-                customer_status
+                ...(includeStats ? buildCustomerStats(c.id, loanAggMap, ratingAggMap) : {}),
+                stats_pending: !includeStats
             });
         });
 
@@ -409,6 +417,83 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
     } catch (err) {
         console.error('Get customers error:', err);
         res.status(500).json({ error: 'Failed to fetch customers' });
+    }
+});
+
+// GET /api/customers/stats - lightweight stats for list items
+router.get('/stats', checkPermission('can_view_customers'), async (req, res) => {
+    try {
+        const idsParam = req.query.ids;
+        const rawIds = Array.isArray(idsParam)
+            ? idsParam.flatMap((value) => String(value).split(','))
+            : String(idsParam || '').split(',');
+        const customerIds = rawIds
+            .map((id) => id.trim())
+            .filter((id) => /^[0-9a-fA-F-]{36}$/.test(id))
+            .slice(0, 100);
+
+        if (customerIds.length === 0) {
+            return res.json({ stats: {} });
+        }
+
+        const isMockedDb = Boolean(req.dbClient?.query?._isMockFunction);
+        let hasRatingsTable = false;
+        if (process.env.NODE_ENV !== 'test' && !isMockedDb) {
+            hasRatingsTable = await resolveRatingsTable();
+        }
+
+        const loanAggQuery = `
+            SELECT
+                l.customer_id,
+                COALESCE(SUM(CASE WHEN l.status = 'Active' THEN l.amount ELSE 0 END), 0) AS total_debt,
+                COALESCE(COUNT(l.id), 0) AS total_loans,
+                COALESCE(COUNT(l.id) FILTER (WHERE l.status = 'Paid'), 0) AS paid_loans,
+                COALESCE(COUNT(l.id) FILTER (WHERE l.status = 'Raised'), 0) AS raised_loans,
+                COALESCE(COUNT(l.id) FILTER (WHERE l.status = 'Active'), 0) AS active_loans
+            FROM loans l
+            WHERE l.merchant_id = $1
+              AND l.customer_id = ANY($2::uuid[])
+              AND l.deleted_at IS NULL
+            GROUP BY l.customer_id
+        `;
+        const ratingAggQuery = `
+            SELECT
+                cr.customer_id,
+                ROUND(COALESCE(AVG(cr.score) FILTER (WHERE cr.rating_scope = 'delivery'), 0)::numeric, 1) AS delivery_avg,
+                ROUND(COALESCE(AVG(cr.score) FILTER (WHERE cr.rating_scope = 'monthly'), 0)::numeric, 1) AS monthly_avg,
+                ROUND((
+                    COALESCE(AVG(cr.score) FILTER (WHERE cr.rating_scope = 'delivery'), 0) * 0.6
+                    + COALESCE(AVG(cr.score) FILTER (WHERE cr.rating_scope = 'monthly'), 0) * 0.4
+                )::numeric, 1) AS overall_score
+            FROM customer_ratings cr
+            WHERE cr.merchant_id = $1
+              AND cr.customer_id = ANY($2::uuid[])
+            GROUP BY cr.customer_id
+        `;
+
+        const loanAggMap = new Map();
+        const ratingAggMap = new Map();
+        const results = await Promise.allSettled([
+            req.dbClient.query(loanAggQuery, [req.merchantId, customerIds]),
+            hasRatingsTable ? req.dbClient.query(ratingAggQuery, [req.merchantId, customerIds]) : Promise.resolve({ rows: [] })
+        ]);
+
+        if (results[0].status === 'fulfilled') {
+            results[0].value.rows.forEach((row) => loanAggMap.set(row.customer_id, row));
+        }
+        if (results[1].status === 'fulfilled') {
+            results[1].value.rows.forEach((row) => ratingAggMap.set(row.customer_id, row));
+        }
+
+        const stats = {};
+        customerIds.forEach((id) => {
+            stats[id] = buildCustomerStats(id, loanAggMap, ratingAggMap);
+        });
+
+        res.json({ stats });
+    } catch (err) {
+        console.error('Get customers stats error:', err);
+        res.status(500).json({ error: 'Failed to fetch customer stats' });
     }
 });
 

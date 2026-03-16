@@ -352,6 +352,7 @@ export const customersAPI = {
     getAll: (params: any) => cachedGet('/customers', { params }),
     peekAll: (params: any) => peekCached('/customers', { params }),
     prefetchAll: (params: any) => warmCache('/customers', { params }),
+    getStats: (ids: string[]) => cachedGet('/customers/stats', { params: { ids: ids.join(',') } }),
     getById: (id: string) => cachedGet(`/customers/${id}`),
     getRatings: (id: string, params?: any) => cachedGet(`/customers/${id}/ratings`, { params }),
     saveRating: async (id: string, data: any) => {

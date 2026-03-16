@@ -357,6 +357,11 @@
     color: #475569;
 }
 
+.muted {
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
 /* ─── Pagination ─── */
 .pagination {
     display: flex;
