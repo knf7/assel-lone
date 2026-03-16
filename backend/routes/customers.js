@@ -235,8 +235,10 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
         const pageNumber = Math.max(1, parseInt(page, 10) || 1);
         const limitNumber = Math.min(100, parseInt(limit, 10) || 20);
         const offset = (pageNumber - 1) * limitNumber;
-        const skipCount = skip_count === 'true' || req.query.skipCount === 'true';
         const includeStats = include_stats !== 'false';
+        const skipCount = skip_count === 'true'
+            || req.query.skipCount === 'true'
+            || includeStats === false;
         const isMockedDb = Boolean(req.dbClient?.query?._isMockFunction);
         let hasRatingsTable = false;
         if (includeStats && process.env.NODE_ENV !== 'test' && !isMockedDb) {
@@ -258,7 +260,8 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
             page: pageNumber,
             limit: limitNumber,
             search: search || null,
-            skip_count: skipCount
+            skip_count: skipCount,
+            include_stats: includeStats
         };
         const cacheKey = `customers:list:${req.merchantId}:${Buffer.from(JSON.stringify(cacheParams)).toString('base64')}`;
         const useCache = !isMockedDb;
@@ -277,15 +280,18 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
 
         const countSelect = skipCount ? '' : ', COUNT(*) OVER() AS total_count';
         const queryLimit = skipCount ? limitNumber + 1 : limitNumber;
+        const baseSelect = includeStats
+            ? 'c.*'
+            : 'c.id, c.full_name, c.national_id, c.mobile_number, c.email, c.created_at';
         const baseQuery = `
-            SELECT c.*${countSelect}
+            SELECT ${baseSelect}${countSelect}
             FROM customers c
             WHERE ${whereClause}
             ORDER BY c.created_at DESC
             LIMIT $${params.length + 1} OFFSET $${params.length + 2}
         `;
         const baseQueryFallback = `
-            SELECT c.*${countSelect}
+            SELECT ${baseSelect}${countSelect}
             FROM customers c
             WHERE ${whereClauseFallback}
             ORDER BY c.created_at DESC
@@ -436,6 +442,16 @@ router.get('/stats', checkPermission('can_view_customers'), async (req, res) => 
             return res.json({ stats: {} });
         }
 
+        const cacheKey = `customers:stats:${req.merchantId}:${Buffer.from(customerIds.join(',')).toString('base64')}`;
+        const ttlSeconds = Number(process.env.CUSTOMERS_STATS_CACHE_TTL || 90);
+        const swrSeconds = Math.min(60, Math.max(10, Math.floor(ttlSeconds / 3)));
+        const cacheHeader = `private, max-age=${ttlSeconds}, stale-while-revalidate=${swrSeconds}, stale-if-error=300`;
+        const cached = await getCache(cacheKey);
+        if (cached) {
+            res.set('Cache-Control', cacheHeader);
+            return res.json(cached);
+        }
+
         const isMockedDb = Boolean(req.dbClient?.query?._isMockFunction);
         let hasRatingsTable = false;
         if (process.env.NODE_ENV !== 'test' && !isMockedDb) {
@@ -490,7 +506,10 @@ router.get('/stats', checkPermission('can_view_customers'), async (req, res) => 
             stats[id] = buildCustomerStats(id, loanAggMap, ratingAggMap);
         });
 
-        res.json({ stats });
+        const payload = { stats };
+        await setCache(cacheKey, payload, Number.isFinite(ttlSeconds) ? ttlSeconds : 90);
+        res.set('Cache-Control', cacheHeader);
+        res.json(payload);
     } catch (err) {
         console.error('Get customers stats error:', err);
         res.status(500).json({ error: 'Failed to fetch customer stats' });
