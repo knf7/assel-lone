@@ -291,7 +291,7 @@ export default function CustomersPage() {
                             <tbody>
                                 {customers.map((c, i) => {
                                     const statsPending = Boolean(c.stats_pending);
-                                    const debt = statsPending ? null : parseFloat(c.total_debt || 0);
+                                    const debt = statsPending ? 0 : parseFloat(c.total_debt || 0);
                                     const status = statsPending ? '' : (c.customer_status || '').toLowerCase();
                                     const rowStateClass = status === 'paid'
                                         ? 'row-state-paid'
