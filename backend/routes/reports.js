@@ -101,7 +101,7 @@ router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res)
         const isMockedDb = Boolean(db.query && db.query._isMockFunction);
         const cacheKey = `reports:dashboard:${id}`;
         const useCache = !isMockedDb;
-        const ttlSeconds = Number(process.env.REPORTS_DASHBOARD_TTL || process.env.REPORTS_CACHE_TTL || 120);
+        const ttlSeconds = Number(process.env.REPORTS_DASHBOARD_TTL || process.env.REPORTS_CACHE_TTL || 300);
         const swrSeconds = Math.min(60, Math.max(10, Math.floor(ttlSeconds / 2)));
         const cacheHeader = `private, max-age=${ttlSeconds}, stale-while-revalidate=${swrSeconds}, stale-if-error=300`;
         if (useCache) {
@@ -335,7 +335,7 @@ router.get('/analytics', checkPermission('can_view_analytics'), async (req, res)
         const interval = req.query.interval || 'month';
         const cacheKey = `reports:analytics:${id}:${interval}`;
         const useCache = !isMockedDb;
-        const ttlSeconds = Number(process.env.REPORTS_ANALYTICS_TTL || 180);
+        const ttlSeconds = Number(process.env.REPORTS_ANALYTICS_TTL || 300);
         const swrSeconds = Math.min(90, Math.max(20, Math.floor(ttlSeconds / 2)));
         const cacheHeader = `private, max-age=${ttlSeconds}, stale-while-revalidate=${swrSeconds}, stale-if-error=300`;
         if (useCache) {

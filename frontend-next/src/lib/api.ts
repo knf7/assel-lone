@@ -1,8 +1,8 @@
 import axios from 'axios';
 
 const API_CACHE_PREFIX = 'api-cache:';
-const API_CACHE_TTL_MS = 1000 * 120;
-const API_CACHE_STALE_MS = 1000 * 60 * 10;
+const API_CACHE_TTL_MS = 1000 * 60 * 5;
+const API_CACHE_STALE_MS = 1000 * 60 * 20;
 const memoryCache = new Map<string, { data: any; savedAt: number }>();
 export const DASHBOARD_DIRTY_KEY = 'dashboard-dirty';
 const DATA_SYNC_STORAGE_KEY = 'aseel-data-sync';
