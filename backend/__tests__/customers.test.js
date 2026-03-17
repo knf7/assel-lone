@@ -23,11 +23,10 @@ describe('Customers Controller', () => {
         it('should list customers with pagination and search', async () => {
             db.query
                 .mockResolvedValueOnce({ rows: [{ session_version: 1 }] }) // Auth
-                .mockResolvedValueOnce({ rows: [{ count: '1' }] }) // count
                 .mockResolvedValueOnce({
                     rows: [{
                         id: '1', full_name: 'John Doe', national_id: '1111111111',
-                        mobile_number: '0501111111', total_debt: 1000, total_loans: 1
+                        mobile_number: '0501111111', total_debt: 1000, total_loans: 1, total_count: '1'
                     }]
                 });
 
