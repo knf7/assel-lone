@@ -71,6 +71,7 @@ export default function CustomersPage() {
             include_stats: includeStats ? undefined : false
         };
         const cached = customersAPI.peekAll(params);
+        const usedCache = Boolean(cached);
         if (cached) {
             const cachedList = cached.customers || [];
             const nextCustomers = includeStats
@@ -122,7 +123,8 @@ export default function CustomersPage() {
                 loadCustomerStats(nextCustomers);
             }
         } catch (err: any) {
-            const hasExisting = customers.length > 0;
+            if (requestId !== requestIdRef.current) return;
+            const hasExisting = customers.length > 0 || usedCache;
             if (!hasExisting) {
                 setCustomers([]);
                 setTotalPages(1);
@@ -133,9 +135,19 @@ export default function CustomersPage() {
             } else if (status === 403) {
                 setErrorMsg('غير مصرح. تأكد من صلاحيات الحساب أو الاشتراك.');
             } else if (status >= 500) {
-                setErrorMsg(hasExisting ? 'تعذر تحديث القائمة الآن، تم عرض آخر بيانات محفوظة.' : 'خطأ في الخادم. حاول مرة أخرى بعد قليل.');
+                if (hasExisting) {
+                    setErrorMsg('');
+                    toast.warning('تعذر تحديث القائمة الآن، تم عرض آخر بيانات محفوظة.');
+                } else {
+                    setErrorMsg('خطأ في الخادم. حاول مرة أخرى بعد قليل.');
+                }
             } else {
-                setErrorMsg(hasExisting ? 'تعذر الاتصال بالخادم الآن، تم عرض آخر بيانات محفوظة.' : 'تعذر الاتصال بالخادم. تحقق من إعدادات الـ API أو أعد المحاولة.');
+                if (hasExisting) {
+                    setErrorMsg('');
+                    toast.warning('تعذر الاتصال بالخادم الآن، تم عرض آخر بيانات محفوظة.');
+                } else {
+                    setErrorMsg('تعذر الاتصال بالخادم. تحقق من إعدادات الـ API أو أعد المحاولة.');
+                }
             }
         }
         finally { setLoading(false); }
