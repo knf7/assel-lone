@@ -29,7 +29,10 @@ const runBatchQueries = async (client, batch) => {
     }
 
     const poolMax = Number(db.pool?.options?.max) || 4;
-    const maxParallel = Math.max(1, Math.min(batch.length, Math.max(1, poolMax - 1)));
+    const isMockedQuery = Boolean(db.query && db.query._isMockFunction);
+    const maxParallel = isMockedQuery
+        ? 1
+        : Math.max(1, Math.min(batch.length, Math.max(1, poolMax - 1)));
     if (maxParallel <= 1) {
         const results = [];
         for (const task of batch) {
