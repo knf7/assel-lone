@@ -181,7 +181,9 @@ router.get('/:id', authenticateToken, injectMerchantId, checkPermission('can_vie
 router.post('/upload', authenticateToken, injectMerchantId, checkPermission('can_upload_loans'), upload.single('file'), async (req, res) => {
     console.log('[DEBUG] Upload request received from merchant:', req.merchantId);
     if (!req.file) {
-        console.error('[ERROR] No file uploaded');
+        if (process.env.NODE_ENV !== 'test') {
+            console.error('[ERROR] No file uploaded');
+        }
         return res.status(400).json({ error: 'لم يتم رفع أي ملف' });
     }
 
