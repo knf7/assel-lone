@@ -12,7 +12,7 @@ import './customers.css';
 export default function CustomersPage() {
     const router = useRouter();
     const initialCache = useMemo(
-        () => customersAPI.peekAll({ page: 1, limit: 15, search: undefined }),
+        () => customersAPI.peekAll({ page: 1, limit: 15, include_stats: false }),
         []
     );
     const [customers, setCustomers] = useState<any[]>(() => initialCache?.customers || []);
@@ -30,6 +30,7 @@ export default function CustomersPage() {
     const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const requestIdRef = useRef(0);
     const statsRequestRef = useRef(0);
+    const customersRef = useRef<any[]>(initialCache?.customers || []);
 
     const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
     const shouldRetry = (err: any) => {
@@ -56,6 +57,10 @@ export default function CustomersPage() {
             // keep lightweight list if stats fail
         }
     }, []);
+
+    useEffect(() => {
+        customersRef.current = customers;
+    }, [customers]);
 
     const fetchCustomers = useCallback(async (pageOverride?: number) => {
         const requestId = ++requestIdRef.current;
@@ -84,7 +89,7 @@ export default function CustomersPage() {
             if (!includeStats) {
                 loadCustomerStats(nextCustomers);
             }
-        } else if (customers.length === 0) {
+        } else if (customersRef.current.length === 0) {
             setLoading(true);
         }
         setErrorMsg('');
@@ -124,7 +129,7 @@ export default function CustomersPage() {
             }
         } catch (err: any) {
             if (requestId !== requestIdRef.current) return;
-            const hasExisting = customers.length > 0 || usedCache;
+            const hasExisting = customersRef.current.length > 0 || usedCache;
             if (!hasExisting) {
                 setCustomers([]);
                 setTotalPages(1);
@@ -151,7 +156,7 @@ export default function CustomersPage() {
             }
         }
         finally { setLoading(false); }
-    }, [page, deferredSearch, customers.length]);
+    }, [page, deferredSearch]);
 
     useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
 
