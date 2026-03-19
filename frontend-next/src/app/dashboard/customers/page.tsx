@@ -298,7 +298,7 @@ export default function CustomersPage() {
             </div>
 
             <div className="table-card fade-up">
-                {errorMsg && (
+                {errorMsg && customers.length === 0 && (
                     <div className="form-error" style={{ margin: '12px' }}>
                         {errorMsg}
                     </div>
