@@ -3,6 +3,7 @@ const Joi = require('joi');
 const db = require('../config/database');
 const { authenticateToken, injectMerchantId, injectRlsContext, checkPermission } = require('../middleware/auth');
 const { getCache, setCache, clearCacheByPrefix } = require('../utils/cache');
+const { getCustomerColumnFlags } = require('../utils/customerColumns');
 
 const router = express.Router();
 
@@ -346,9 +347,10 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
 
         const countSelect = skipCount ? '' : ', COUNT(*) OVER() AS total_count';
         const queryLimit = skipCount ? limitNumber + 1 : limitNumber;
+        const customerColumnFlags = await getCustomerColumnFlags();
         const baseSelect = includeStats
             ? 'c.*'
-            : 'c.id, c.full_name, c.national_id, c.mobile_number, c.email, c.created_at';
+            : `c.id, c.full_name, c.national_id, c.mobile_number, ${customerColumnFlags.hasEmail ? 'c.email' : 'NULL::text AS email'}, c.created_at`;
         const baseQuery = `
             SELECT ${baseSelect}${countSelect}
             FROM customers c
