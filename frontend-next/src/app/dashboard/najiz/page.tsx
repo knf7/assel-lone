@@ -35,6 +35,18 @@ export default function NajizCasesPage() {
     const [updatingId, setUpdatingId] = useState<string | null>(null);
     const [confirmPaidCaseId, setConfirmPaidCaseId] = useState<string | null>(null);
     const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const parseMoneyInput = (value: string | number | null | undefined) => {
+        if (value === null || value === undefined || value === '') return 0;
+        const raw = String(value);
+        const arabicDigits = '٠١٢٣٤٥٦٧٨٩';
+        const persianDigits = '۰۱۲۳۴۵۶۷۸۹';
+        const normalizedDigits = raw
+            .replace(/[٠-٩]/g, (d) => String(arabicDigits.indexOf(d)))
+            .replace(/[۰-۹]/g, (d) => String(persianDigits.indexOf(d)));
+        const stripped = normalizedDigits.replace(/[٬،,]/g, '').replace(/[^\d.-]/g, '');
+        const parsed = Number(stripped);
+        return Number.isFinite(parsed) ? parsed : 0;
+    };
 
     useEffect(() => {
         fetchCases();
@@ -106,14 +118,31 @@ export default function NajizCasesPage() {
     const saveNajizDetails = async (loan: NajizCase) => {
         try {
             setUpdatingId(loan.id);
-            const caseAmount = Number(loan.najiz_case_amount ?? loan.amount ?? 0) || 0;
-            const collectedAmount = Number(loan.najiz_collected_amount ?? 0) || 0;
-            await loansAPI.update(loan.id, {
+            const caseAmount = parseMoneyInput(loan.najiz_case_amount ?? loan.amount ?? 0);
+            const collectedAmount = parseMoneyInput(loan.najiz_collected_amount ?? 0);
+            const response = await loansAPI.updateNajizCase(loan.id, {
+                is_najiz_case: true,
                 najiz_case_amount: caseAmount,
                 najiz_collected_amount: collectedAmount,
                 najiz_plaintiff_name: loan.najiz_plaintiff_name,
-                najiz_plaintiff_national_id: loan.najiz_plaintiff_national_id
+                najiz_plaintiff_national_id: loan.najiz_plaintiff_national_id,
+                najiz_status: loan.najiz_status,
+                najiz_raised_date: loan.najiz_raised_date,
+                najiz_case_number: loan.najiz_case_number
             });
+            const updatedLoan = response?.data?.loan ?? null;
+            setCases(prev => prev.map((currentLoan) =>
+                currentLoan.id === loan.id
+                    ? {
+                        ...currentLoan,
+                        ...updatedLoan,
+                        is_najiz_case: true,
+                        najiz_case_amount: updatedLoan?.najiz_case_amount ?? caseAmount,
+                        najiz_collected_amount: updatedLoan?.najiz_collected_amount ?? collectedAmount
+                    }
+                    : currentLoan
+            ));
+            scheduleRefresh(150);
         } catch {
             toast.error('فشل حفظ التحديثات');
             return;
@@ -130,12 +159,30 @@ export default function NajizCasesPage() {
     const confirmMarkAsPaid = async () => {
         if (!confirmPaidCaseId) return;
         try {
+            const paidCaseId = confirmPaidCaseId;
             const targetCase = cases.find(c => c.id === confirmPaidCaseId);
-            await loansAPI.updateStatus(confirmPaidCaseId, 'Paid', {
-                najiz_collected_amount: Number(targetCase?.najiz_collected_amount || 0) || 0
+            const response = await loansAPI.updateStatus(confirmPaidCaseId, 'Paid', {
+                is_najiz_case: true,
+                najiz_collected_amount: parseMoneyInput(targetCase?.najiz_collected_amount || 0)
             });
+            const updatedLoan = response?.data?.loan ?? null;
+            setCases(prev => prev.map((currentLoan) =>
+                currentLoan.id === paidCaseId
+                    ? {
+                        ...currentLoan,
+                        ...updatedLoan,
+                        is_najiz_case: true,
+                        status: 'Paid',
+                        najiz_collected_amount: Number(
+                            updatedLoan?.najiz_collected_amount
+                            ?? targetCase?.najiz_collected_amount
+                            ?? 0
+                        ) || 0
+                    }
+                    : currentLoan
+            ));
+            scheduleRefresh(150);
             toast.success('تم تحديث الحالة إلى: تم السداد');
-            fetchCases();
         } catch {
             toast.error('فشل في التحديث');
         } finally {
@@ -241,7 +288,7 @@ export default function NajizCasesPage() {
                                         <input
                                             type="number"
                                             className="input"
-                                            value={loan.najiz_case_amount || ''}
+                                            value={loan.najiz_case_amount ?? ''}
                                             placeholder="المبلغ المراد تحصيله عبر ناجز"
                                             onChange={(e) => handleCaseAmountChange(loan.id, e.target.value)}
                                         />
@@ -255,7 +302,7 @@ export default function NajizCasesPage() {
                                         <input
                                             type="number"
                                             className="input"
-                                            value={loan.najiz_collected_amount || ''}
+                                            value={loan.najiz_collected_amount ?? ''}
                                             placeholder="أدخل ما تم تحصيله فعليًا"
                                             onChange={(e) => handleCollectedAmountChange(loan.id, e.target.value)}
                                         />

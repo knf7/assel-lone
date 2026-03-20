@@ -37,6 +37,20 @@ const normalizeLoanField = (value) => {
     return String(value).trim();
 };
 
+const normalizeAmountInput = (value) => {
+    if (value === undefined || value === null) return null;
+    if (value === '') return 0;
+    const raw = String(value);
+    const arabicDigits = '٠١٢٣٤٥٦٧٨٩';
+    const persianDigits = '۰۱۲۳۴۵۶۷۸۹';
+    const normalizedDigits = raw
+        .replace(/[٠-٩]/g, (d) => String(arabicDigits.indexOf(d)))
+        .replace(/[۰-۹]/g, (d) => String(persianDigits.indexOf(d)));
+    const stripped = normalizedDigits.replace(/[٬،,]/g, '').replace(/[^\d.-]/g, '');
+    const parsed = Number(stripped);
+    return Number.isFinite(parsed) ? parsed : 0;
+};
+
 const enrichLoan = (l) => {
     const mobileNumber = normalizeLoanField(l.mobile_number);
     const nationalId = normalizeLoanField(l.national_id);
@@ -48,9 +62,41 @@ const enrichLoan = (l) => {
         national_id: nationalId || l.national_id,
         whatsappLink: sanitizedMobile ? `https://wa.me/${sanitizedMobile}` : null,
         najizLink: nationalId ? `https://www.najiz.sa/applications/landing/verification?id=${encodeURIComponent(nationalId)}` : null,
-        najiz_collected_amount: l.najiz_collected_amount || 0
+        najiz_collected_amount: l.najiz_collected_amount ?? 0
     };
 };
+
+const hasNajizFieldsInPayload = (payload = {}) => {
+    const najizKeys = [
+        'is_najiz_case',
+        'najiz_case_number',
+        'najiz_case_amount',
+        'najiz_status',
+        'najiz_collected_amount',
+        'najiz_plaintiff_name',
+        'najiz_plaintiff_national_id',
+        'najiz_raised_date',
+        'najiz_fee_percentage'
+    ];
+
+    return najizKeys.some((key) => Object.prototype.hasOwnProperty.call(payload, key) && payload[key] !== undefined && payload[key] !== null);
+};
+
+const najizNumberField = Joi.alternatives().try(
+    Joi.number().min(0),
+    Joi.string().allow('', null)
+);
+
+const najizUpdateSchema = Joi.object({
+    is_najiz_case: Joi.boolean().optional(),
+    najiz_case_number: Joi.string().optional().allow('', null),
+    najiz_case_amount: najizNumberField.optional().allow(null),
+    najiz_status: Joi.string().optional().allow('', null),
+    najiz_collected_amount: najizNumberField.optional().allow(null),
+    najiz_plaintiff_name: Joi.string().optional().allow('', null),
+    najiz_plaintiff_national_id: Joi.string().optional().allow('', null),
+    najiz_raised_date: Joi.string().optional().allow('', null)
+}).min(1).options({ stripUnknown: true });
 
 const { checkPlanLimit } = require('../middleware/planLimits');
 
@@ -891,7 +937,7 @@ router.post('/', checkPermission('can_add_loans'), checkPlanLimit('loans'), asyn
 router.patch('/:id/status', checkLoanStatusPermission, async (req, res) => {
     try {
         const { id } = req.params;
-        const { status, najiz_collected_amount } = req.body;
+        const { status, najiz_collected_amount, is_najiz_case } = req.body;
         const allowedStatuses = ['Active', 'Paid', 'Raised', 'Cancelled', 'Overdue'];
 
         if (!status) {
@@ -908,7 +954,7 @@ router.patch('/:id/status', checkLoanStatusPermission, async (req, res) => {
                 status = $1::varchar,
                 is_najiz_case = CASE
                     WHEN $1::varchar = 'Raised' THEN true
-                    WHEN $1::varchar = 'Paid' THEN COALESCE(is_najiz_case, false)
+                    WHEN $1::varchar = 'Paid' THEN COALESCE($5::boolean, is_najiz_case, false)
                     ELSE false
                 END,
                 najiz_raised_date = CASE
@@ -936,10 +982,11 @@ router.patch('/:id/status', checkLoanStatusPermission, async (req, res) => {
         `;
 
         const collectedAmountParam = najiz_collected_amount !== undefined
-            ? Math.max(0, Number(najiz_collected_amount) || 0)
+            ? Math.max(0, Number(normalizeAmountInput(najiz_collected_amount)) || 0)
             : null;
+        const isNajizCaseParam = is_najiz_case !== undefined ? Boolean(is_najiz_case) : null;
 
-        const r = await req.dbClient.query(query, [status, id, req.merchantId, collectedAmountParam]);
+        const r = await req.dbClient.query(query, [status, id, req.merchantId, collectedAmountParam, isNajizCaseParam]);
         if (r.rows.length === 0) return res.status(404).json({ error: 'Loan not found' });
         await invalidateReportsCache(req.merchantId);
         res.json({ message: 'Status updated successfully', loan: enrichLoan(r.rows[0]) });
@@ -949,6 +996,89 @@ router.patch('/:id/status', checkLoanStatusPermission, async (req, res) => {
             return res.status(400).json({ error: 'الانتقال بين حالتي القرض غير مسموح بهذه الطريقة' });
         }
         res.status(500).json({ error: 'Failed to update status' });
+    }
+});
+
+// PATCH /api/loans/:id/najiz
+router.patch('/:id/najiz', checkPermission('can_add_loans'), async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { error, value } = najizUpdateSchema.validate(req.body, {
+            abortEarly: false,
+            convert: true
+        });
+
+        if (error) {
+            return res.status(400).json({ error: error.details[0].message });
+        }
+
+        const currentLoanRes = await req.dbClient.query(
+            `SELECT id
+             FROM loans
+             WHERE id = $1 AND merchant_id = $2 AND deleted_at IS NULL`,
+            [id, req.merchantId]
+        );
+
+        if (currentLoanRes.rows.length === 0) {
+            return res.status(404).json({ error: 'Loan not found or unauthorized' });
+        }
+
+        const updates = [];
+        const params = [];
+        let i = 1;
+        const pushUpdate = (sql, val) => {
+            updates.push(`${sql} = $${i++}`);
+            params.push(val);
+        };
+
+        pushUpdate('is_najiz_case', value.is_najiz_case !== undefined ? Boolean(value.is_najiz_case) : true);
+
+        if (value.najiz_case_number !== undefined) {
+            pushUpdate('najiz_case_number', value.najiz_case_number || null);
+        }
+        if (value.najiz_case_amount !== undefined) {
+            const parsedCaseAmount = normalizeAmountInput(value.najiz_case_amount);
+            pushUpdate('najiz_case_amount', value.najiz_case_amount === null ? null : (parsedCaseAmount ?? 0));
+        }
+        if (value.najiz_status !== undefined) {
+            pushUpdate('najiz_status', value.najiz_status || null);
+        }
+        if (value.najiz_collected_amount !== undefined) {
+            const parsedCollectedAmount = normalizeAmountInput(value.najiz_collected_amount);
+            pushUpdate('najiz_collected_amount', Math.max(0, Number(parsedCollectedAmount) || 0));
+        }
+        if (value.najiz_plaintiff_name !== undefined) {
+            pushUpdate('najiz_plaintiff_name', value.najiz_plaintiff_name || null);
+        }
+        if (value.najiz_plaintiff_national_id !== undefined) {
+            pushUpdate('najiz_plaintiff_national_id', value.najiz_plaintiff_national_id || null);
+        }
+        if (value.najiz_raised_date !== undefined) {
+            pushUpdate('najiz_raised_date', value.najiz_raised_date || null);
+        }
+
+        if (updates.length === 0) {
+            return res.status(400).json({ error: 'No fields to update' });
+        }
+
+        params.push(id, req.merchantId);
+        const result = await req.dbClient.query(
+            `UPDATE loans
+             SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP
+             WHERE id = $${i} AND merchant_id = $${i + 1} AND deleted_at IS NULL
+             RETURNING *`,
+            params
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Loan not found or unauthorized' });
+        }
+
+        await invalidateReportsCache(req.merchantId);
+        res.json({ message: 'Najiz details updated successfully', loan: enrichLoan(result.rows[0]) });
+    } catch (err) {
+        console.error('Update Najiz error:', err);
+        res.status(500).json({ error: 'Failed to update Najiz details' });
     }
 });
 
@@ -982,17 +1112,19 @@ router.patch('/:id', checkPermission('can_add_loans'), async (req, res) => {
         const currentLoan = currentLoanRes.rows[0];
         const finalStatus = status !== undefined ? status : currentLoan.status;
         const explicitClearNajiz = status !== undefined && (finalStatus === 'Active' || finalStatus === 'Cancelled');
+        const hasNajizPayload = hasNajizFieldsInPayload(req.body);
 
         // Keep Najiz context for paid cases and partial edits; clear only when explicitly moved to Active/Cancelled.
         const effectiveIsNajizCase = is_najiz_case !== undefined
             ? Boolean(is_najiz_case)
             : (finalStatus === 'Raised'
                 ? true
-                : (explicitClearNajiz ? false : Boolean(currentLoan.is_najiz_case)));
+                : (explicitClearNajiz ? false : (Boolean(currentLoan.is_najiz_case) || hasNajizPayload)));
         const allowNajizFields = !explicitClearNajiz && (
             effectiveIsNajizCase ||
             finalStatus === 'Raised' ||
-            (finalStatus === 'Paid' && Boolean(currentLoan.is_najiz_case))
+            (finalStatus === 'Paid' && Boolean(currentLoan.is_najiz_case)) ||
+            hasNajizPayload
         );
 
         const updates = [];
@@ -1027,7 +1159,8 @@ router.patch('/:id', checkPermission('can_add_loans'), async (req, res) => {
         }
         if (najiz_case_amount !== undefined) {
             updates.push(`najiz_case_amount = $${i++} `);
-            params.push(allowNajizFields ? najiz_case_amount : null);
+            const parsedCaseAmount = normalizeAmountInput(najiz_case_amount);
+            params.push(allowNajizFields ? (parsedCaseAmount ?? null) : null);
         }
         if (najiz_status !== undefined) {
             updates.push(`najiz_status = $${i++} `);
@@ -1035,7 +1168,7 @@ router.patch('/:id', checkPermission('can_add_loans'), async (req, res) => {
         }
         if (najiz_collected_amount !== undefined) {
             updates.push(`najiz_collected_amount = $${i++} `);
-            const safeCollectedAmount = Math.max(0, Number(najiz_collected_amount) || 0);
+            const safeCollectedAmount = Math.max(0, Number(normalizeAmountInput(najiz_collected_amount)) || 0);
             params.push(allowNajizFields ? safeCollectedAmount : 0);
         }
         if (najiz_plaintiff_name !== undefined) {
@@ -1065,7 +1198,7 @@ router.patch('/:id', checkPermission('can_add_loans'), async (req, res) => {
         if (is_najiz_case !== undefined) {
             updates.push(`is_najiz_case = $${i++} `);
             params.push(Boolean(is_najiz_case));
-        } else if (status !== undefined) {
+        } else if (status !== undefined || hasNajizPayload) {
             updates.push(`is_najiz_case = $${i++} `);
             params.push(effectiveIsNajizCase);
         }
