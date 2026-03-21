@@ -343,8 +343,9 @@ export default function CustomersPage() {
                                             : status === 'unpaid'
                                                 ? 'row-state-unpaid'
                                                 : '';
-                                    const ratingValue = statsPending ? 0 : Number(c.rating || 0);
-                                    const normalizedRating = Math.max(0, Math.min(10, ratingValue));
+                                    const hasRating = !statsPending && c.rating !== null && c.rating !== undefined && !Number.isNaN(Number(c.rating));
+                                    const ratingValue = hasRating ? Number(c.rating) : null;
+                                    const normalizedRating = ratingValue === null ? null : Math.max(0, Math.min(10, ratingValue));
                                     return (
                                         <tr key={c.id} className={rowStateClass}>
                                             <td className="td-num">{(page - 1) * 15 + i + 1}</td>
@@ -361,12 +362,14 @@ export default function CustomersPage() {
                                             <td>
                                                 {statsPending ? (
                                                     <span className="muted">—</span>
+                                                ) : !hasRating ? (
+                                                    <span className="muted">لم يتم التقييم</span>
                                                 ) : (
                                                     <div className="rating-wrap">
                                                         <div className="rating-bar">
-                                                            <div className="rating-fill" style={{ width: `${normalizedRating * 10}%` }} />
+                                                            <div className="rating-fill" style={{ width: `${(normalizedRating || 0) * 10}%` }} />
                                                         </div>
-                                                        <span className="rating-value">{normalizedRating.toFixed(1)}/10</span>
+                                                        <span className="rating-value">{(normalizedRating || 0).toFixed(1)}/10</span>
                                                     </div>
                                                 )}
                                             </td>

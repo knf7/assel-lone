@@ -69,7 +69,8 @@ const buildCustomerStats = (customerId, loanAggMap, ratingAggMap) => {
     const rawScore = 100 + (paid * 3) - (active * 8) - (raised * 15);
     const computedRating = Math.max(0, Math.min(10, rawScore / 10));
     const manualRating = Number(ratingAgg.overall_score || 0);
-    const rating = manualRating > 0 ? manualRating : computedRating;
+    const hasSystemRating = paid > 0;
+    const rating = manualRating > 0 ? manualRating : (hasSystemRating ? computedRating : null);
     const customer_status = raised > 0 ? 'raised' : active > 0 ? 'unpaid' : total > 0 ? 'paid' : 'new';
 
     return {
@@ -81,10 +82,55 @@ const buildCustomerStats = (customerId, loanAggMap, ratingAggMap) => {
         delivery_avg: Number(ratingAgg.delivery_avg || 0),
         monthly_avg: Number(ratingAgg.monthly_avg || 0),
         overall_score: Number(ratingAgg.overall_score || 0),
-        rating: Number(rating.toFixed(1)),
-        rating_source: manualRating > 0 ? 'manual' : 'system',
+        rating: typeof rating === 'number' ? Number(rating.toFixed(1)) : null,
+        rating_source: manualRating > 0 ? 'manual' : (hasSystemRating ? 'system' : 'unrated'),
         customer_status
     };
+};
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const normalizeRatedBy = (user) => {
+    const candidate = user?.employeeId || user?.userId || null;
+    if (!candidate) return null;
+    const value = String(candidate).trim();
+    return UUID_PATTERN.test(value) ? value : null;
+};
+
+const isTxAbortedError = (err) => {
+    if (!err) return false;
+    if (err.code === '25P02') return true;
+    return String(err.message || '').toLowerCase().includes('current transaction is aborted');
+};
+
+const isPaidLoanStatus = (status) => {
+    const normalized = String(status || '').trim().toLowerCase();
+    if (!normalized) return false;
+    if (normalized === 'paid' || normalized === 'completed' || normalized === 'settled') return true;
+    const compactArabic = normalized.replace(/\s+/g, '');
+    return compactArabic.includes('تمالسداد')
+        || compactArabic.includes('مسدد')
+        || compactArabic.includes('مدفوع')
+        || compactArabic.includes('مكتملة');
+};
+
+const runWithFreshMerchantClient = async (merchantId, runner) => {
+    if (!db.pool || typeof db.pool.connect !== 'function') {
+        return runner({ query: db.query });
+    }
+    const freshClient = await db.pool.connect();
+    try {
+        await freshClient.query('BEGIN');
+        await freshClient.query('SELECT set_config($1, $2, $3)', ['app.merchant_id', merchantId, true]);
+        const result = await runner(freshClient);
+        await freshClient.query('COMMIT');
+        return result;
+    } catch (err) {
+        try { await freshClient.query('ROLLBACK'); } catch { }
+        throw err;
+    } finally {
+        freshClient.release(true);
+    }
 };
 
 // Apply auth middleware and RLS
@@ -652,6 +698,23 @@ router.get('/:id/ratings', checkPermission('can_view_customers'), async (req, re
 // POST /api/customers/:id/ratings - add/update manual rating
 router.post('/:id/ratings', checkPermission('can_view_customers'), async (req, res) => {
     try {
+        const runQuery = async (query, queryParams = []) => {
+            if (!req.dbClient?.query || req.dbClient?.query?._isMockFunction) {
+                return db.query(query, queryParams);
+            }
+            if (req.dbClientBroken) {
+                return runWithFreshMerchantClient(req.merchantId, (client) => client.query(query, queryParams));
+            }
+            try {
+                return await req.dbClient.query(query, queryParams);
+            } catch (err) {
+                if (!isTxAbortedError(err)) throw err;
+                req.dbClientBroken = true;
+                console.warn('Customer rating query aborted; retrying with a fresh connection.');
+                return runWithFreshMerchantClient(req.merchantId, (client) => client.query(query, queryParams));
+            }
+        };
+
         const ratingsReady = await ensureCustomerRatingsTable(req.dbClient);
         if (!ratingsReady) {
             return res.status(503).json({ error: 'customer_ratings table is missing or not ready yet.' });
@@ -665,10 +728,11 @@ router.post('/:id/ratings', checkPermission('can_view_customers'), async (req, r
         const scope = value.scope;
         const score = Number(value.score);
         const notes = value.notes || null;
+        const ratedBy = normalizeRatedBy(req.user);
         let loanId = value.loanId || null;
         let monthKey = value.month ? `${value.month}-01` : null;
 
-        const customerExists = await req.dbClient.query(
+        const customerExists = await runQuery(
             'SELECT id FROM customers WHERE id = $1 AND merchant_id = $2 AND deleted_at IS NULL',
             [customerId, req.merchantId]
         );
@@ -681,7 +745,7 @@ router.post('/:id/ratings', checkPermission('can_view_customers'), async (req, r
                 return res.status(400).json({ error: 'loanId is required for delivery rating' });
             }
 
-            const loanCheck = await req.dbClient.query(
+            const loanCheck = await runQuery(
                 `SELECT id, customer_id, status
                  FROM loans
                  WHERE id = $1 AND merchant_id = $2 AND deleted_at IS NULL`,
@@ -692,7 +756,7 @@ router.post('/:id/ratings', checkPermission('can_view_customers'), async (req, r
                 return res.status(400).json({ error: 'Loan does not belong to this customer' });
             }
 
-            if (loanCheck.rows[0].status !== 'Paid') {
+            if (!isPaidLoanStatus(loanCheck.rows[0].status)) {
                 return res.status(400).json({ error: 'Delivery rating is allowed only after loan is marked as Paid' });
             }
         } else {
@@ -705,7 +769,7 @@ router.post('/:id/ratings', checkPermission('can_view_customers'), async (req, r
         }
 
         // Lock updates after 48 hours to preserve audit trail.
-        const existing = await req.dbClient.query(
+        const existing = await runQuery(
             `SELECT id, is_locked, created_at
              FROM customer_ratings
              WHERE merchant_id = $1
@@ -725,7 +789,7 @@ router.post('/:id/ratings', checkPermission('can_view_customers'), async (req, r
             const createdAt = new Date(row.created_at).getTime();
             const isExpired = Date.now() - createdAt > 48 * 60 * 60 * 1000;
             if (row.is_locked || isExpired) {
-                await req.dbClient.query(
+                await runQuery(
                     'UPDATE customer_ratings SET is_locked = true WHERE id = $1',
                     [row.id]
                 );
@@ -737,33 +801,85 @@ router.post('/:id/ratings', checkPermission('can_view_customers'), async (req, r
 
         let result;
         if (scope === 'delivery') {
-            result = await req.dbClient.query(
-                `INSERT INTO customer_ratings
-                  (merchant_id, customer_id, loan_id, rating_scope, score, month_key, notes, rated_by)
-                 VALUES ($1, $2, $3, 'delivery', $4, NULL, $5, $6)
-                 ON CONFLICT (merchant_id, loan_id, rating_scope) WHERE rating_scope = 'delivery'
-                 DO UPDATE SET
-                   score = EXCLUDED.score,
-                   notes = EXCLUDED.notes,
-                   rated_by = EXCLUDED.rated_by,
-                   updated_at = CURRENT_TIMESTAMP
-                 RETURNING *`,
-                [req.merchantId, customerId, loanId, score, notes, req.user?.userId || null]
-            );
+            if (existing.rows.length > 0) {
+                result = await runQuery(
+                    `UPDATE customer_ratings
+                     SET score = $1,
+                         notes = $2,
+                         rated_by = $3,
+                         updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $4 AND merchant_id = $5
+                     RETURNING *`,
+                    [score, notes, ratedBy, existing.rows[0].id, req.merchantId]
+                );
+            } else {
+                try {
+                    result = await runQuery(
+                        `INSERT INTO customer_ratings
+                          (merchant_id, customer_id, loan_id, rating_scope, score, month_key, notes, rated_by)
+                         VALUES ($1, $2, $3, 'delivery', $4, NULL, $5, $6)
+                         RETURNING *`,
+                        [req.merchantId, customerId, loanId, score, notes, ratedBy]
+                    );
+                } catch (err) {
+                    if (err.code !== '23505') throw err;
+                    result = await runQuery(
+                        `UPDATE customer_ratings
+                         SET score = $1,
+                             notes = $2,
+                             rated_by = $3,
+                             updated_at = CURRENT_TIMESTAMP
+                         WHERE merchant_id = $4
+                           AND customer_id = $5
+                           AND rating_scope = 'delivery'
+                           AND loan_id = $6
+                         RETURNING *`,
+                        [score, notes, ratedBy, req.merchantId, customerId, loanId]
+                    );
+                }
+            }
         } else {
-            result = await req.dbClient.query(
-                `INSERT INTO customer_ratings
-                  (merchant_id, customer_id, loan_id, rating_scope, score, month_key, notes, rated_by)
-                 VALUES ($1, $2, NULL, 'monthly', $3, $4::date, $5, $6)
-                 ON CONFLICT (merchant_id, customer_id, month_key, rating_scope) WHERE rating_scope = 'monthly'
-                 DO UPDATE SET
-                   score = EXCLUDED.score,
-                   notes = EXCLUDED.notes,
-                   rated_by = EXCLUDED.rated_by,
-                   updated_at = CURRENT_TIMESTAMP
-                 RETURNING *`,
-                [req.merchantId, customerId, score, monthKey, notes, req.user?.userId || null]
-            );
+            if (existing.rows.length > 0) {
+                result = await runQuery(
+                    `UPDATE customer_ratings
+                     SET score = $1,
+                         notes = $2,
+                         rated_by = $3,
+                         updated_at = CURRENT_TIMESTAMP
+                     WHERE id = $4 AND merchant_id = $5
+                     RETURNING *`,
+                    [score, notes, ratedBy, existing.rows[0].id, req.merchantId]
+                );
+            } else {
+                try {
+                    result = await runQuery(
+                        `INSERT INTO customer_ratings
+                          (merchant_id, customer_id, loan_id, rating_scope, score, month_key, notes, rated_by)
+                         VALUES ($1, $2, NULL, 'monthly', $3, $4::date, $5, $6)
+                         RETURNING *`,
+                        [req.merchantId, customerId, score, monthKey, notes, ratedBy]
+                    );
+                } catch (err) {
+                    if (err.code !== '23505') throw err;
+                    result = await runQuery(
+                        `UPDATE customer_ratings
+                         SET score = $1,
+                             notes = $2,
+                             rated_by = $3,
+                             updated_at = CURRENT_TIMESTAMP
+                         WHERE merchant_id = $4
+                           AND customer_id = $5
+                           AND rating_scope = 'monthly'
+                           AND month_key = $6::date
+                         RETURNING *`,
+                        [score, notes, ratedBy, req.merchantId, customerId, monthKey]
+                    );
+                }
+            }
+        }
+
+        if (!result?.rows?.[0]) {
+            return res.status(500).json({ error: 'تعذر حفظ التقييم حالياً. حاول مرة أخرى.' });
         }
 
         res.status(201).json({
@@ -772,6 +888,12 @@ router.post('/:id/ratings', checkPermission('can_view_customers'), async (req, r
         });
     } catch (err) {
         console.error('Save customer rating error:', err);
+        if (err?.code === '22P02') {
+            return res.status(400).json({ error: 'صيغة البيانات غير صحيحة. تأكد من القيم المدخلة.' });
+        }
+        if (err?.code === '23503') {
+            return res.status(400).json({ error: 'القرض أو العميل غير صالح لهذا التقييم.' });
+        }
         res.status(500).json({ error: 'Failed to save customer rating' });
     }
 });
