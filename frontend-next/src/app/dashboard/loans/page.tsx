@@ -91,12 +91,16 @@ const LoansPage = () => {
         }
     }, [searchParams]);
 
-    const fetchLoans = useCallback(async (pageOverride?: number) => {
+    const fetchLoans = useCallback(async (pageOverride?: number, opts: { forceFresh?: boolean } = {}) => {
         const requestId = ++requestIdRef.current;
         try {
             const requestPage = pageOverride ?? pagination.page;
+            const forceFresh = Boolean(opts.forceFresh);
             const params = buildLoanQueryParams(deferredFilters, requestPage, pagination.limit);
-            const cached = loansAPI.peekAll(params);
+            if (forceFresh) {
+                params._t = Date.now();
+            }
+            const cached = forceFresh ? null : loansAPI.peekAll(params);
             if (cached) {
                 setLoans(cached.loans || []);
                 setPagination(prev => ({
@@ -117,13 +121,14 @@ const LoansPage = () => {
                 page: requestPage,
                 totalPages: data.pagination?.totalPages ?? 1
             }));
+            const prefetchParams = { ...params, _t: undefined };
 
             const nextTotalPages = data.pagination?.totalPages ?? 1;
             if (requestPage < nextTotalPages) {
-                loansAPI.prefetchAll({ ...params, page: requestPage + 1 });
+                loansAPI.prefetchAll({ ...prefetchParams, page: requestPage + 1 });
             }
             if (requestPage > 1) {
-                loansAPI.prefetchAll({ ...params, page: requestPage - 1 });
+                loansAPI.prefetchAll({ ...prefetchParams, page: requestPage - 1 });
             }
         } catch (error) {
             console.error('Failed to fetch loans:', error);
@@ -136,13 +141,13 @@ const LoansPage = () => {
         fetchLoans();
     }, [fetchLoans]);
 
-    const scheduleRefresh = useCallback((delay = 250) => {
+    const scheduleRefresh = useCallback((delay = 250, forceFresh = false) => {
         if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-        refreshTimerRef.current = setTimeout(() => fetchLoans(pagination.page), delay);
+        refreshTimerRef.current = setTimeout(() => fetchLoans(pagination.page, { forceFresh }), delay);
     }, [fetchLoans, pagination.page]);
 
     useDataSync(() => {
-        scheduleRefresh(200);
+        scheduleRefresh(200, true);
     }, { scopes: ['loans', 'customers', 'dashboard'], debounceMs: 200 });
 
     const handleStatusChange = async (loanId: string, newStatus: string) => {
@@ -161,7 +166,7 @@ const LoansPage = () => {
                     loan.id === loanId ? { ...loan, ...updated } : loan
                 )));
             }
-            scheduleRefresh(200);
+            scheduleRefresh(200, true);
         } catch (error: any) {
             try {
                 const res = await loansAPI.update(loanId, { status: newStatus });
@@ -171,7 +176,7 @@ const LoansPage = () => {
                         loan.id === loanId ? { ...loan, ...updated } : loan
                     )));
                 }
-                scheduleRefresh(200);
+                scheduleRefresh(200, true);
                 return;
             } catch (fallbackError: any) {
                 setLoans(previous);
@@ -196,7 +201,7 @@ const LoansPage = () => {
         setLoans((prev) => prev.filter((loan) => loan.id !== deleteLoanId));
         try {
             await loansAPI.delete(deleteLoanId);
-            scheduleRefresh(200);
+            scheduleRefresh(200, true);
             toast.success('تم حذف القرض');
         } catch (error: any) {
             setLoans(previous);
@@ -505,7 +510,7 @@ const LoansPage = () => {
                         loan.id === updatedLoan.id ? { ...loan, ...updatedLoan } : loan
                     )));
                 }
-                scheduleRefresh(700);
+                scheduleRefresh(700, true);
                 toast.success('تم تحديث بيانات القرض');
             }} />}
             {showImportModal && <ImportLoansModal onClose={() => setShowImportModal(false)} onSuccess={async () => {

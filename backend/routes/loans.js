@@ -51,6 +51,14 @@ const normalizeAmountInput = (value) => {
     return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const normalizeOptionalAmountInput = (value) => {
+    if (value === undefined || value === null) return null;
+    if (typeof value === 'string' && value.trim() === '') return null;
+    const parsed = normalizeAmountInput(value);
+    if (parsed === null || parsed === undefined) return null;
+    return Math.max(0, Number(parsed) || 0);
+};
+
 const enrichLoan = (l) => {
     const mobileNumber = normalizeLoanField(l.mobile_number);
     const nationalId = normalizeLoanField(l.national_id);
@@ -62,7 +70,7 @@ const enrichLoan = (l) => {
         national_id: nationalId || l.national_id,
         whatsappLink: sanitizedMobile ? `https://wa.me/${sanitizedMobile}` : null,
         najizLink: nationalId ? `https://www.najiz.sa/applications/landing/verification?id=${encodeURIComponent(nationalId)}` : null,
-        najiz_collected_amount: l.najiz_collected_amount ?? 0
+        najiz_collected_amount: l.najiz_collected_amount ?? null
     };
 };
 
@@ -137,10 +145,12 @@ router.post(
                 return res.status(400).json({ error: 'لم يتم رفع أي ملف' });
             }
 
-            const attachmentUrl = `/uploads/receipts/${req.file.filename}`;
+            const attachmentPath = `/uploads/receipts/${req.file.filename}`;
+            const attachmentUrl = `${req.protocol}://${req.get('host')}${attachmentPath}`;
             return res.status(201).json({
                 message: 'تم رفع المرفق بنجاح',
                 attachmentUrl,
+                attachmentPath,
                 originalName: req.file.originalname,
                 size: req.file.size
             });
@@ -911,6 +921,10 @@ router.post('/', checkPermission('can_add_loans'), checkPlanLimit('loans'), asyn
         const initialStatus = status || 'Active';
         const isRaised = initialStatus === 'Raised';
 
+        const normalizedRaisedCaseAmount = isRaised
+            ? normalizeOptionalAmountInput(najiz_case_amount)
+            : null;
+
         const r = await db.query(
             `INSERT INTO loans (
                 merchant_id, customer_id, amount, principal_amount, profit_percentage,
@@ -922,7 +936,7 @@ router.post('/', checkPermission('can_add_loans'), checkPlanLimit('loans'), asyn
                 req.merchantId, customerId, amount, principal_amount || amount, profit_percentage || 0,
                 receiptNumber, receiptImageUrl, transactionDate || new Date(), notes, initialStatus,
                 isRaised ? najiz_case_number : null,
-                isRaised ? (najiz_case_amount || amount || null) : null,
+                normalizedRaisedCaseAmount,
                 isRaised ? najiz_status : null,
                 isRaised,
                 isRaised ? (najiz_fee_percentage !== undefined ? najiz_fee_percentage : 30) : null
@@ -969,15 +983,15 @@ router.patch('/:id/status', checkLoanStatusPermission, async (req, res) => {
                 najiz_status = CASE WHEN $1::varchar IN ('Active', 'Cancelled') THEN NULL ELSE najiz_status END,
                 najiz_case_amount = CASE
                     WHEN $1::varchar IN ('Active', 'Cancelled') THEN NULL
-                    WHEN $1::varchar = 'Raised' THEN COALESCE(najiz_case_amount, amount)
+                    WHEN $1::varchar = 'Raised' THEN najiz_case_amount
                     ELSE najiz_case_amount
                 END,
                 najiz_fee_percentage = CASE WHEN $1::varchar IN ('Active', 'Cancelled') THEN NULL ELSE najiz_fee_percentage END,
                 najiz_plaintiff_name = CASE WHEN $1::varchar IN ('Active', 'Cancelled') THEN NULL ELSE najiz_plaintiff_name END,
                 najiz_plaintiff_national_id = CASE WHEN $1::varchar IN ('Active', 'Cancelled') THEN NULL ELSE najiz_plaintiff_national_id END,
                 najiz_collected_amount = CASE
-                    WHEN $1::varchar = 'Paid' THEN COALESCE($4::numeric, NULLIF(najiz_collected_amount, 0), najiz_case_amount, amount, 0)
-                    WHEN $1::varchar IN ('Active', 'Cancelled') THEN 0
+                    WHEN $1::varchar = 'Paid' THEN COALESCE($4::numeric, najiz_collected_amount)
+                    WHEN $1::varchar IN ('Active', 'Cancelled') THEN NULL
                     ELSE najiz_collected_amount
                 END
             WHERE id = $2 AND merchant_id = $3
@@ -985,7 +999,7 @@ router.patch('/:id/status', checkLoanStatusPermission, async (req, res) => {
         `;
 
         const collectedAmountParam = najiz_collected_amount !== undefined
-            ? Math.max(0, Number(normalizeAmountInput(najiz_collected_amount)) || 0)
+            ? normalizeOptionalAmountInput(najiz_collected_amount)
             : null;
         const isNajizCaseParam = is_najiz_case !== undefined ? Boolean(is_najiz_case) : null;
 
@@ -1040,15 +1054,15 @@ router.patch('/:id/najiz', checkPermission('can_add_loans'), async (req, res) =>
             pushUpdate('najiz_case_number', value.najiz_case_number || null);
         }
         if (value.najiz_case_amount !== undefined) {
-            const parsedCaseAmount = normalizeAmountInput(value.najiz_case_amount);
-            pushUpdate('najiz_case_amount', value.najiz_case_amount === null ? null : (parsedCaseAmount ?? 0));
+            const parsedCaseAmount = normalizeOptionalAmountInput(value.najiz_case_amount);
+            pushUpdate('najiz_case_amount', parsedCaseAmount);
         }
         if (value.najiz_status !== undefined) {
             pushUpdate('najiz_status', value.najiz_status || null);
         }
         if (value.najiz_collected_amount !== undefined) {
-            const parsedCollectedAmount = normalizeAmountInput(value.najiz_collected_amount);
-            pushUpdate('najiz_collected_amount', Math.max(0, Number(parsedCollectedAmount) || 0));
+            const parsedCollectedAmount = normalizeOptionalAmountInput(value.najiz_collected_amount);
+            pushUpdate('najiz_collected_amount', parsedCollectedAmount);
         }
         if (value.najiz_plaintiff_name !== undefined) {
             pushUpdate('najiz_plaintiff_name', value.najiz_plaintiff_name || null);
@@ -1091,7 +1105,7 @@ router.patch('/:id', checkPermission('can_add_loans'), async (req, res) => {
         const { id } = req.params;
         const {
             amount, principal_amount, profit_percentage, status, notes,
-            receiptNumber, receipt_number, transactionDate, transaction_date,
+            receiptNumber, receipt_number, receiptImageUrl, receipt_image_url, transactionDate, transaction_date,
             najiz_case_number, najiz_case_amount, najiz_status,
             najiz_collected_amount, is_najiz_case,
             najiz_plaintiff_name, najiz_plaintiff_national_id, najiz_raised_date
@@ -1139,10 +1153,15 @@ router.patch('/:id', checkPermission('can_add_loans'), async (req, res) => {
         if (profit_percentage !== undefined) { updates.push(`profit_percentage = $${i++} `); params.push(profit_percentage); }
         // Accept both camelCase and snake_case keys from frontend.
         const normalizedReceiptNumber = receiptNumber !== undefined ? receiptNumber : receipt_number;
+        const normalizedReceiptImageUrl = receiptImageUrl !== undefined ? receiptImageUrl : receipt_image_url;
         const normalizedTransactionDate = transactionDate !== undefined ? transactionDate : transaction_date;
         if (normalizedReceiptNumber !== undefined) {
             updates.push(`receipt_number = $${i++} `);
             params.push(normalizedReceiptNumber);
+        }
+        if (normalizedReceiptImageUrl !== undefined) {
+            updates.push(`receipt_image_url = $${i++} `);
+            params.push(normalizedReceiptImageUrl || null);
         }
         if (normalizedTransactionDate !== undefined) {
             updates.push(`transaction_date = $${i++} `);
@@ -1162,8 +1181,8 @@ router.patch('/:id', checkPermission('can_add_loans'), async (req, res) => {
         }
         if (najiz_case_amount !== undefined) {
             updates.push(`najiz_case_amount = $${i++} `);
-            const parsedCaseAmount = normalizeAmountInput(najiz_case_amount);
-            params.push(allowNajizFields ? (parsedCaseAmount ?? null) : null);
+            const parsedCaseAmount = normalizeOptionalAmountInput(najiz_case_amount);
+            params.push(allowNajizFields ? parsedCaseAmount : null);
         }
         if (najiz_status !== undefined) {
             updates.push(`najiz_status = $${i++} `);
@@ -1171,8 +1190,8 @@ router.patch('/:id', checkPermission('can_add_loans'), async (req, res) => {
         }
         if (najiz_collected_amount !== undefined) {
             updates.push(`najiz_collected_amount = $${i++} `);
-            const safeCollectedAmount = Math.max(0, Number(normalizeAmountInput(najiz_collected_amount)) || 0);
-            params.push(allowNajizFields ? safeCollectedAmount : 0);
+            const safeCollectedAmount = normalizeOptionalAmountInput(najiz_collected_amount);
+            params.push(allowNajizFields ? safeCollectedAmount : null);
         }
         if (najiz_plaintiff_name !== undefined) {
             updates.push(`najiz_plaintiff_name = $${i++} `);
@@ -1191,7 +1210,7 @@ router.patch('/:id', checkPermission('can_add_loans'), async (req, res) => {
             updates.push('najiz_case_number = NULL');
             updates.push('najiz_case_amount = NULL');
             updates.push('najiz_status = NULL');
-            updates.push('najiz_collected_amount = 0');
+            updates.push('najiz_collected_amount = NULL');
             updates.push('najiz_plaintiff_name = NULL');
             updates.push('najiz_plaintiff_national_id = NULL');
             updates.push('najiz_raised_date = NULL');

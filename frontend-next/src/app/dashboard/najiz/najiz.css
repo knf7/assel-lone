@@ -294,6 +294,20 @@
   background: linear-gradient(135deg, #16a34a, #15803d);
 }
 
+.btn-secondary {
+  color: #0f172a;
+  background: #fff;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+}
+
+.upload-btn-inline {
+  cursor: pointer;
+}
+
+.upload-btn-inline input[type="file"] {
+  display: none;
+}
+
 .case-card-footer {
   display: flex;
   justify-content: space-between;
@@ -322,6 +336,10 @@
 
 .link-whatsapp:hover {
   color: #16a34a;
+}
+
+.link-attachment:hover {
+  color: #0284c7;
 }
 
 .transaction-date {

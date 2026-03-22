@@ -3,6 +3,7 @@ const Joi = require('joi');
 const db = require('../config/database');
 const { authenticateToken, injectMerchantId, injectRlsContext, checkPermission } = require('../middleware/auth');
 const { getCache, setCache, clearCacheByPrefix } = require('../utils/cache');
+const { getCustomerColumnFlags } = require('../utils/customerColumns');
 
 const router = express.Router();
 
@@ -101,6 +102,25 @@ const isTxAbortedError = (err) => {
     if (!err) return false;
     if (err.code === '25P02') return true;
     return String(err.message || '').toLowerCase().includes('current transaction is aborted');
+};
+
+const isTransientDbError = (err) => {
+    if (!err) return false;
+    const code = String(err.code || '').toUpperCase();
+    if (['53300', '57P01', '57P02', '57P03', '08000', '08003', '08006'].includes(code)) {
+        return true;
+    }
+    const message = String(err.message || '').toLowerCase();
+    return message.includes('max clients')
+        || message.includes('pool')
+        || message.includes('timeout')
+        || message.includes('connection terminated');
+};
+
+const isUndefinedColumnError = (err) => {
+    if (!err) return false;
+    if (String(err.code || '') === '42703') return true;
+    return String(err.message || '').toLowerCase().includes('column') && String(err.message || '').toLowerCase().includes('does not exist');
 };
 
 const isPaidLoanStatus = (status) => {
@@ -308,7 +328,35 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
             hasRatingsTable = await resolveRatingsTable(req.dbClient);
         }
 
-        let whereClause = 'c.merchant_id = $1 AND c.deleted_at IS NULL';
+        const columnFlags = await getCustomerColumnFlags();
+        const hasCreatedAt = Boolean(columnFlags.hasCreatedAt);
+        const hasDeletedAt = Boolean(columnFlags.hasDeletedAt);
+        const hasEmail = Boolean(columnFlags.hasEmail);
+        const orderColumn = hasCreatedAt ? 'c.created_at' : 'c.id';
+        const baseSelect = includeStats
+            ? [
+                'c.id',
+                'c.merchant_id',
+                'c.full_name',
+                'c.national_id',
+                'c.mobile_number',
+                hasEmail ? 'c.email' : 'NULL::text AS email',
+                hasCreatedAt ? 'c.created_at' : 'NULL::timestamp AS created_at',
+                'NULL::timestamp AS deleted_at'
+            ].join(', ')
+            : [
+                'c.id',
+                'c.full_name',
+                'c.national_id',
+                'c.mobile_number',
+                hasEmail ? 'c.email' : 'NULL::text AS email',
+                hasCreatedAt ? 'c.created_at' : 'NULL::timestamp AS created_at'
+            ].join(', ');
+
+        let whereClause = 'c.merchant_id = $1';
+        if (hasDeletedAt) {
+            whereClause += ' AND c.deleted_at IS NULL';
+        }
         let whereClauseFallback = 'c.merchant_id = $1';
         let params = [req.merchantId];
 
@@ -356,18 +404,25 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
             if (!db.pool || typeof db.pool.connect !== 'function') {
                 return db.query(query, queryParams);
             }
-            const freshClient = await db.pool.connect();
+            let freshClient;
             try {
-                await freshClient.query('BEGIN');
-                await freshClient.query('SELECT set_config($1, $2, $3)', ['app.merchant_id', req.merchantId, true]);
+                freshClient = await db.pool.connect();
+                await freshClient.query('SELECT set_config($1, $2, $3)', ['app.merchant_id', req.merchantId, false]);
                 const result = await freshClient.query(query, queryParams);
-                await freshClient.query('COMMIT');
+                await freshClient.query('SELECT set_config($1, $2, $3)', ['app.merchant_id', '', false]);
                 return result;
             } catch (err) {
-                try { await freshClient.query('ROLLBACK'); } catch { }
+                if (freshClient) {
+                    try { await freshClient.query('SELECT set_config($1, $2, $3)', ['app.merchant_id', '', false]); } catch { }
+                }
+                if (isTransientDbError(err)) {
+                    return db.query(query, queryParams);
+                }
                 throw err;
             } finally {
-                freshClient.release(true);
+                if (freshClient && typeof freshClient.release === 'function') {
+                    freshClient.release(true);
+                }
             }
         };
 
@@ -381,41 +436,75 @@ router.get('/', checkPermission('can_view_customers'), async (req, res) => {
             try {
                 return await req.dbClient.query(query, queryParams);
             } catch (err) {
-                if (!isTransactionAbort(err)) {
+                if (!isTransactionAbort(err) && !isTransientDbError(err)) {
                     throw err;
                 }
                 req.dbClientBroken = true;
-                console.warn('Customers query aborted; retrying on fresh connection.');
+                console.warn('Customers query failed on scoped client; retrying on fresh connection.');
                 return runFreshQuery(query, queryParams);
             }
         };
 
         const countSelect = skipCount ? '' : ', COUNT(*) OVER() AS total_count';
         const queryLimit = skipCount ? limitNumber + 1 : limitNumber;
-        const baseSelect = includeStats
-            ? 'c.*'
-            : 'c.id, c.full_name, c.national_id, c.mobile_number, NULL::text AS email, c.created_at';
         const baseQuery = `
             SELECT ${baseSelect}${countSelect}
             FROM customers c
             WHERE ${whereClause}
-            ORDER BY c.created_at DESC
+            ORDER BY ${orderColumn} DESC
             LIMIT $${params.length + 1} OFFSET $${params.length + 2}
         `;
         const baseQueryFallback = `
             SELECT ${baseSelect}${countSelect}
             FROM customers c
             WHERE ${whereClauseFallback}
-            ORDER BY c.created_at DESC
+            ORDER BY ${orderColumn} DESC
+            LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+        `;
+        const emergencyBaseSelect = includeStats
+            ? [
+                'c.id',
+                'c.merchant_id',
+                'c.full_name',
+                'c.national_id',
+                'c.mobile_number',
+                'NULL::text AS email',
+                'NULL::timestamp AS created_at',
+                'NULL::timestamp AS deleted_at'
+            ].join(', ')
+            : [
+                'c.id',
+                'c.full_name',
+                'c.national_id',
+                'c.mobile_number',
+                'NULL::text AS email',
+                'NULL::timestamp AS created_at'
+            ].join(', ');
+        const emergencyQuery = `
+            SELECT ${emergencyBaseSelect}${countSelect}
+            FROM customers c
+            WHERE ${whereClauseFallback}
+            ORDER BY c.id DESC
             LIMIT $${params.length + 1} OFFSET $${params.length + 2}
         `;
 
         let baseResult;
+        let baseError;
         try {
             baseResult = await runQuery(baseQuery, [...params, queryLimit, offset]);
         } catch (err) {
+            baseError = err;
             console.warn('Customers base query fallback:', err?.message || err);
-            baseResult = await runQuery(baseQueryFallback, [...params, queryLimit, offset]);
+            try {
+                baseResult = await runQuery(baseQueryFallback, [...params, queryLimit, offset]);
+            } catch (fallbackErr) {
+                console.warn('Customers fallback query failed, trying emergency query:', fallbackErr?.message || fallbackErr);
+                if (isUndefinedColumnError(baseError) || isUndefinedColumnError(fallbackErr) || isTxAbortedError(fallbackErr) || isTransientDbError(fallbackErr)) {
+                    baseResult = await runQuery(emergencyQuery, [...params, queryLimit, offset]);
+                } else {
+                    throw fallbackErr;
+                }
+            }
         }
 
         let baseRows = baseResult.rows;

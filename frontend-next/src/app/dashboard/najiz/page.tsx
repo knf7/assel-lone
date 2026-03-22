@@ -25,6 +25,8 @@ type NajizCase = {
     najiz_plaintiff_name?: string;
     najiz_plaintiff_national_id?: string;
     whatsappLink?: string;
+    receipt_image_url?: string | null;
+    receiptImageUrl?: string | null;
     transaction_date: string;
 };
 
@@ -33,10 +35,11 @@ export default function NajizCasesPage() {
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [updatingId, setUpdatingId] = useState<string | null>(null);
+    const [uploadingAttachmentId, setUploadingAttachmentId] = useState<string | null>(null);
     const [confirmPaidCaseId, setConfirmPaidCaseId] = useState<string | null>(null);
     const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const parseMoneyInput = (value: string | number | null | undefined) => {
-        if (value === null || value === undefined || value === '') return 0;
+        if (value === null || value === undefined || value === '') return null;
         const raw = String(value);
         const arabicDigits = '٠١٢٣٤٥٦٧٨٩';
         const persianDigits = '۰۱۲۳۴۵۶۷۸۹';
@@ -45,7 +48,7 @@ export default function NajizCasesPage() {
             .replace(/[۰-۹]/g, (d) => String(persianDigits.indexOf(d)));
         const stripped = normalizedDigits.replace(/[٬،,]/g, '').replace(/[^\d.-]/g, '');
         const parsed = Number(stripped);
-        return Number.isFinite(parsed) ? parsed : 0;
+        return Number.isFinite(parsed) ? Math.max(0, parsed) : null;
     };
 
     const fetchCases = useCallback(async (forceFresh = false) => {
@@ -60,8 +63,8 @@ export default function NajizCasesPage() {
             setCases(
                 (data.loans || []).map((loan: NajizCase) => ({
                     ...loan,
-                    najiz_case_amount: loan.najiz_case_amount ?? loan.amount ?? 0,
-                    najiz_collected_amount: loan.najiz_collected_amount ?? 0
+                    najiz_case_amount: loan.najiz_case_amount ?? '',
+                    najiz_collected_amount: loan.najiz_collected_amount ?? ''
                 }))
             );
         } catch (error) {
@@ -85,11 +88,8 @@ export default function NajizCasesPage() {
     }, { scopes: ['loans', 'dashboard', 'reports', 'najiz'], debounceMs: 200 });
 
     const totalCases = cases.length;
-    const totalRaisedAmount = cases.reduce(
-        (sum, c) => sum + (Number(c.najiz_case_amount ?? c.amount ?? 0) || 0),
-        0
-    );
-    const totalCollectedAmount = cases.reduce((sum, c) => sum + (Number(c.najiz_collected_amount || 0) || 0), 0);
+    const totalRaisedAmount = cases.reduce((sum, c) => sum + (Number(c.najiz_case_amount ?? 0) || 0), 0);
+    const totalCollectedAmount = cases.reduce((sum, c) => sum + (Number(c.najiz_collected_amount ?? 0) || 0), 0);
     const totalPaidCases = cases.filter(c => c.status === 'Paid').length;
     const totalActiveCases = cases.filter(c => c.status === 'Raised').length;
     const formatAmount = (value: number) => value.toLocaleString('en-US');
@@ -122,8 +122,8 @@ export default function NajizCasesPage() {
     const saveNajizDetails = async (loan: NajizCase) => {
         try {
             setUpdatingId(loan.id);
-            const caseAmount = parseMoneyInput(loan.najiz_case_amount ?? loan.amount ?? 0);
-            const collectedAmount = parseMoneyInput(loan.najiz_collected_amount ?? 0);
+            const caseAmount = parseMoneyInput(loan.najiz_case_amount);
+            const collectedAmount = parseMoneyInput(loan.najiz_collected_amount);
             const response = await loansAPI.updateNajizCase(loan.id, {
                 is_najiz_case: true,
                 najiz_case_amount: caseAmount,
@@ -141,8 +141,8 @@ export default function NajizCasesPage() {
                         ...currentLoan,
                         ...updatedLoan,
                         is_najiz_case: true,
-                        najiz_case_amount: updatedLoan?.najiz_case_amount ?? caseAmount,
-                        najiz_collected_amount: updatedLoan?.najiz_collected_amount ?? collectedAmount
+                        najiz_case_amount: updatedLoan?.najiz_case_amount ?? caseAmount ?? '',
+                        najiz_collected_amount: updatedLoan?.najiz_collected_amount ?? collectedAmount ?? ''
                     }
                     : currentLoan
             ));
@@ -167,7 +167,7 @@ export default function NajizCasesPage() {
             const targetCase = cases.find(c => c.id === confirmPaidCaseId);
             const response = await loansAPI.updateStatus(confirmPaidCaseId, 'Paid', {
                 is_najiz_case: true,
-                najiz_collected_amount: parseMoneyInput(targetCase?.najiz_collected_amount || 0)
+                najiz_collected_amount: parseMoneyInput(targetCase?.najiz_collected_amount)
             });
             const updatedLoan = response?.data?.loan ?? null;
             setCases(prev => prev.map((currentLoan) =>
@@ -177,11 +177,10 @@ export default function NajizCasesPage() {
                         ...updatedLoan,
                         is_najiz_case: true,
                         status: 'Paid',
-                        najiz_collected_amount: Number(
+                        najiz_collected_amount:
                             updatedLoan?.najiz_collected_amount
                             ?? targetCase?.najiz_collected_amount
-                            ?? 0
-                        ) || 0
+                            ?? ''
                     }
                     : currentLoan
             ));
@@ -199,6 +198,49 @@ export default function NajizCasesPage() {
         (c.national_id || '').includes(searchTerm) ||
         (c.najiz_case_number || '').includes(searchTerm)
     );
+
+    const resolveAttachmentUrl = (loan: NajizCase) => {
+        const rawUrl = loan.receipt_image_url || loan.receiptImageUrl;
+        if (!rawUrl) return null;
+        if (/^https?:\/\//i.test(rawUrl)) return rawUrl;
+        const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
+        const base = (apiBase.replace(/\/api\/?$/, '') || 'https://aseel-backend.vercel.app');
+        return `${base}${rawUrl}`;
+    };
+
+    const uploadNajizAttachment = async (loan: NajizCase, file?: File) => {
+        if (!file) return;
+        try {
+            setUploadingAttachmentId(loan.id);
+            const formData = new FormData();
+            formData.append('file', file);
+            const uploadRes = await loansAPI.uploadAttachment(formData);
+            const attachmentUrl =
+                uploadRes?.data?.attachmentUrl
+                || uploadRes?.data?.attachmentPath;
+
+            if (!attachmentUrl) {
+                throw new Error('missing-attachment-url');
+            }
+
+            const updateRes = await loansAPI.update(loan.id, {
+                receiptImageUrl: attachmentUrl,
+                is_najiz_case: true
+            });
+            const updatedLoan = updateRes?.data?.loan;
+            setCases((prev) => prev.map((row) => (
+                row.id === loan.id
+                    ? { ...row, ...(updatedLoan || {}), receipt_image_url: updatedLoan?.receipt_image_url || attachmentUrl }
+                    : row
+            )));
+            scheduleRefresh(350, true);
+            toast.success('تم رفع المرفق وربطه بالقضية');
+        } catch (error: any) {
+            toast.error(error?.response?.data?.error || 'فشل رفع المرفق');
+        } finally {
+            setUploadingAttachmentId(null);
+        }
+    };
 
     return (
         <div className="najiz-page-container">
@@ -346,6 +388,20 @@ export default function NajizCasesPage() {
                                     >
                                         <IconSave size={16} /> {updatingId === loan.id ? 'جاري الحفظ...' : 'حفظ التغييرات'}
                                     </button>
+                                    <label className="btn btn-secondary upload-btn-inline">
+                                        {uploadingAttachmentId === loan.id ? 'جاري الرفع...' : 'إرفاق مستند'}
+                                        <input
+                                            type="file"
+                                            hidden
+                                            accept=".png,.jpg,.jpeg,.pdf"
+                                            disabled={uploadingAttachmentId === loan.id}
+                                            onChange={(e) => {
+                                                const selectedFile = e.target.files?.[0];
+                                                uploadNajizAttachment(loan, selectedFile);
+                                                e.currentTarget.value = '';
+                                            }}
+                                        />
+                                    </label>
                                     {loan.status !== 'Paid' && (
                                         <button
                                             className="btn btn-success"
@@ -361,6 +417,11 @@ export default function NajizCasesPage() {
                                         <a href="https://najiz.sa" target="_blank" rel="noopener noreferrer" className="link-najiz">
                                             <IconExternalLink size={14} /> ناجز
                                         </a>
+                                        {resolveAttachmentUrl(loan) && (
+                                            <a href={resolveAttachmentUrl(loan) || '#'} target="_blank" rel="noopener noreferrer" className="link-attachment">
+                                                <IconExternalLink size={14} /> عرض المرفق
+                                            </a>
+                                        )}
                                         {loan.whatsappLink && (
                                             <a href={loan.whatsappLink} target="_blank" rel="noopener noreferrer" className="link-whatsapp">
                                                 <IconMessageCircle size={14} /> واتساب

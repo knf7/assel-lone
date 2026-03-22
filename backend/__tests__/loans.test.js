@@ -18,6 +18,7 @@ describe('Loans Controller - Bulk Upload', () => {
 
     beforeEach(() => {
         jest.clearAllMocks();
+        delete db.pool;
     });
 
     describe('POST /api/loans/upload', () => {
@@ -79,5 +80,67 @@ describe('Loans Controller - Bulk Upload', () => {
             expect(res.statusCode).toEqual(400);
             expect(res.body.error).toEqual('لم يتم رفع أي ملف');
         });
+    });
+});
+
+describe('Loans Controller - Najiz updates', () => {
+    let token;
+    const mockMerchantId = '123e4567-e89b-12d3-a456-426614174000';
+
+    beforeAll(() => {
+        const jwt = require('jsonwebtoken');
+        const { JWT_SECRET } = require('../middleware/auth');
+        token = jwt.sign({ merchantId: mockMerchantId, email: 'test@example.com' }, JWT_SECRET);
+    });
+
+    beforeEach(() => {
+        jest.clearAllMocks();
+    });
+
+    it('should persist Najiz collected amount and keep Najiz flag when editing a case', async () => {
+        db.query
+            .mockResolvedValueOnce({ rows: [{ session_version: 1 }] })
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'loan-1',
+                    is_najiz_case: false
+                }]
+            })
+            .mockResolvedValueOnce({
+                rows: [{
+                    id: 'loan-1',
+                    status: 'Raised',
+                    is_najiz_case: true,
+                    amount: '1500',
+                    principal_amount: '1500',
+                    profit_percentage: '0',
+                    national_id: '1111111111',
+                    mobile_number: '0501234567',
+                    customer_name: 'Test Customer',
+                    najiz_case_amount: '1500',
+                    najiz_collected_amount: '1250',
+                    najiz_status: 'قيد الرفع',
+                    najiz_plaintiff_name: 'عمر',
+                    najiz_plaintiff_national_id: '1111111111'
+                }]
+            });
+
+        const res = await request(app)
+            .patch('/api/loans/loan-1/najiz')
+            .set('Authorization', `Bearer ${token}`)
+            .send({
+                najiz_case_amount: 1500,
+                najiz_collected_amount: 1250,
+                najiz_plaintiff_name: 'عمر',
+                najiz_plaintiff_national_id: '1111111111'
+            });
+
+        expect(res.statusCode).toEqual(200);
+        expect(res.body.loan.is_najiz_case).toBe(true);
+        expect(Number(res.body.loan.najiz_collected_amount)).toBe(1250);
+
+        const updateQuery = db.query.mock.calls[2][0];
+        expect(updateQuery).toContain('is_najiz_case');
+        expect(updateQuery).toContain('najiz_collected_amount');
     });
 });

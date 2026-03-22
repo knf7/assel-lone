@@ -63,8 +63,8 @@ const buildLoanSqlHelpers = (columnFlags) => {
         columnFlags.hasIsNajizCase ? `COALESCE(${prefix(alias)}is_najiz_case, false) = true` : 'false';
     const najizCollectedPaid = (alias = '') =>
         columnFlags.hasNajizCollectedAmount
-            ? `COALESCE(NULLIF(${prefix(alias)}najiz_collected_amount, 0), ${prefix(alias)}najiz_case_amount, ${prefix(alias)}amount, 0)`
-            : `COALESCE(${prefix(alias)}najiz_case_amount, ${prefix(alias)}amount, 0)`;
+            ? `COALESCE(${prefix(alias)}najiz_collected_amount, 0)`
+            : '0';
     const najizCollectedValue = (alias = '') =>
         columnFlags.hasNajizCollectedAmount
             ? `COALESCE(${prefix(alias)}najiz_collected_amount, 0)`
@@ -227,7 +227,7 @@ router.get('/dashboard', checkPermission('can_view_dashboard'), async (req, res)
                          OR najiz_case_number IS NOT NULL
                        )
                    ) AS paid_cases,
-                   COALESCE(SUM(COALESCE(najiz_case_amount, amount, 0)) FILTER (
+                   COALESCE(SUM(COALESCE(najiz_case_amount, 0)) FILTER (
                      WHERE ${loanSql.isNajizCase()}
                         OR najiz_case_number IS NOT NULL
                         OR status = 'Raised'

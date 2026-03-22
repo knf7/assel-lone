@@ -63,10 +63,11 @@ export default function CustomersPage() {
         customersRef.current = customers;
     }, [customers]);
 
-    const fetchCustomers = useCallback(async (pageOverride?: number) => {
+    const fetchCustomers = useCallback(async (pageOverride?: number, opts: { forceFresh?: boolean } = {}) => {
         const requestId = ++requestIdRef.current;
         const requestPage = pageOverride ?? page;
         const searchValue = deferredSearch.trim();
+        const forceFresh = Boolean(opts.forceFresh);
         const skipCount = Boolean(searchValue);
         const includeStats = false;
         const params = {
@@ -74,9 +75,10 @@ export default function CustomersPage() {
             limit: 15,
             search: searchValue || undefined,
             skip_count: skipCount || undefined,
-            include_stats: includeStats ? undefined : false
+            include_stats: includeStats ? undefined : false,
+            _t: forceFresh ? Date.now() : undefined
         };
-        const cached = customersAPI.peekAll(params);
+        const cached = forceFresh ? null : customersAPI.peekAll(params);
         const usedCache = Boolean(cached);
         if (cached) {
             const cachedList = cached.customers || [];
@@ -120,12 +122,13 @@ export default function CustomersPage() {
             setPage(requestPage);
             const nextTotalPages = d.pagination?.totalPages ?? 1;
             setTotalPages(nextTotalPages);
+            const prefetchParams = { ...params, _t: undefined };
 
             if (requestPage < nextTotalPages) {
-                customersAPI.prefetchAll({ ...params, page: requestPage + 1 });
+                customersAPI.prefetchAll({ ...prefetchParams, page: requestPage + 1 });
             }
             if (requestPage > 1) {
-                customersAPI.prefetchAll({ ...params, page: requestPage - 1 });
+                customersAPI.prefetchAll({ ...prefetchParams, page: requestPage - 1 });
             }
             if (!includeStats) {
                 loadCustomerStats(nextCustomers);
@@ -159,17 +162,17 @@ export default function CustomersPage() {
             }
         }
         finally { setLoading(false); }
-    }, [page, deferredSearch]);
+    }, [page, deferredSearch, loadCustomerStats]);
 
     useEffect(() => { fetchCustomers(); }, [fetchCustomers]);
 
-    const scheduleRefresh = useCallback((delay = 250) => {
+    const scheduleRefresh = useCallback((delay = 250, forceFresh = false) => {
         if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-        refreshTimerRef.current = setTimeout(() => fetchCustomers(page), delay);
+        refreshTimerRef.current = setTimeout(() => fetchCustomers(page, { forceFresh }), delay);
     }, [fetchCustomers, page]);
 
     useDataSync(() => {
-        scheduleRefresh(200);
+        scheduleRefresh(200, true);
     }, { scopes: ['customers', 'loans', 'dashboard'], debounceMs: 200 });
 
     const exportCSV = async () => {
@@ -215,8 +218,8 @@ export default function CustomersPage() {
                     onClose={() => setShowAdd(false)}
                     onSaved={async () => {
                         setShowAdd(false);
-                        await fetchCustomers(1);
-                        scheduleRefresh(200);
+                        await fetchCustomers(1, { forceFresh: true });
+                        scheduleRefresh(200, true);
                         toast.success('تم إضافة العميل وتحديث القائمة');
                     }}
                 />
@@ -238,7 +241,7 @@ export default function CustomersPage() {
                                 c.id === normalized.id ? { ...c, ...normalized } : c
                             )));
                         }
-                        scheduleRefresh(200);
+                        scheduleRefresh(200, true);
                         toast.success('تم تحديث بيانات العميل');
                     }}
                 />
@@ -250,7 +253,7 @@ export default function CustomersPage() {
                     onClose={() => setRatingCustomer(null)}
                     onSaved={async () => {
                         setRatingCustomer(null);
-                        await fetchCustomers();
+                        await fetchCustomers(undefined, { forceFresh: true });
                         toast.success('تم حفظ التقييم بنجاح');
                     }}
                 />

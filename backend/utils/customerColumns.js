@@ -5,13 +5,17 @@ let cachedFlags = null;
 let cachedAt = 0;
 
 const DEFAULT_FLAGS = {
-    hasEmail: false
+    hasEmail: false,
+    hasCreatedAt: true,
+    hasDeletedAt: true
 };
 
 const buildFlags = (columns = []) => {
     const columnSet = new Set(columns);
     return {
-        hasEmail: columnSet.has('email')
+        hasEmail: columnSet.has('email'),
+        hasCreatedAt: columnSet.has('created_at'),
+        hasDeletedAt: columnSet.has('deleted_at')
     };
 };
 
